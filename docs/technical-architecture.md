@@ -121,13 +121,14 @@ The next phase is focused on moving from testnet MVP to mainnet readiness.
 
 Key milestones:
 
-1. Complete investor wallet provisioning and custody workflow
-2. Finalise issuer and distributor wallet management
-3. Complete AUDD subscription and distribution integration
-4. Complete project issuance and investor allocation flow
-5. Add transaction monitoring and reconciliation
-6. Complete pilot project execution
-7. Launch first mainnet asset issuance
+1. Complete investor wallet provisioning and custody workflow  
+2. Integrate Stellar Wallets Kit and Freighter Connect for wallet interaction and transaction signing  
+3. Finalise issuer and distributor wallet management  
+4. Complete AUDD subscription and distribution integration  
+5. Complete project issuance and investor allocation flow  
+6. Add transaction monitoring and reconciliation  
+7. Complete pilot project execution  
+8. Launch first mainnet asset issuance  
 
 ## 11. Stellar Ecosystem Value
 
