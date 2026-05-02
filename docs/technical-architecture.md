@@ -150,44 +150,53 @@ The platform combines off-chain legal structuring with on-chain issuance, wallet
 
 ## 13. Integration with Stellar Ecosystem Building Blocks
 
-RegenX is designed to integrate with key Stellar ecosystem building blocks to support wallet infrastructure, payments, and settlement.
+RegenX is designed to integrate with approved Stellar ecosystem building blocks to support wallet interaction, trustline management, and payment distribution flows.
 
-### Wallet & User Authentication
-RegenX will integrate with:
-- Stellar Wallets Kit for wallet connection and authentication
-- Freighter and/or embedded wallet solutions for investor interaction
+### Stellar Wallets Kit
 
-This enables secure wallet interaction and trustline management for investors.
+RegenX will integrate Stellar Wallets Kit to support wallet connection, authentication, and interaction with Stellar-compatible wallets.
 
-### Payments & Distributions
-RegenX will integrate with:
-- Stellar Disbursement Platform (SDP) for automated bulk payment distributions
+This will support:
 
-This supports:
+- investor wallet connection
+- transaction signing flows
+- trustline creation and management
+- future support for multiple wallet providers
+
+### Freighter Connect
+
+RegenX will integrate Freighter Connect as an investor-facing wallet connection option for users who wish to interact with Stellar assets through a browser wallet.
+
+Freighter Connect will support:
+
+- investor wallet authentication
+- trustline creation for project assets
+- signing of Stellar transactions
+- interaction with tokenised project assets
+
+RegenX’s default near-term model remains custodial investor wallets, with one wallet provisioned per verified investor. Freighter Connect provides an additional wallet interaction pathway and supports future self-custody or hybrid custody options where appropriate.
+
+### Stellar Disbursement Platform
+
+RegenX will integrate Stellar Disbursement Platform (SDP) to support scalable investor payment and distribution workflows.
+
+SDP will support:
+
 - investor distributions
-- yield payments
-- recurring settlement flows
+- recurring payment flows
+- automated bulk disbursements
+- reconciliation of payment activity
 
-### Asset Issuance & Anchor Infrastructure
-RegenX leverages:
-- Stellar native asset issuance (issuer + distributor model)
-- Anchor-based infrastructure (where required) to support fiat ↔ stablecoin flows
+### Stablecoin Settlement Layer
 
-This supports AUDD-based capital flows and on/off-ramping.
+RegenX is integrating AUDD as the primary Australian dollar stablecoin settlement asset for:
 
-### Stablecoin & Settlement Layer
-RegenX integrates AUDD as the primary settlement asset for:
-- subscriptions
+- investor subscriptions
 - capital deployment
-- distributions
+- revenue distributions
 
-Future integrations may include additional on/off-ramp providers from the Stellar ecosystem.
+AUDD will be used alongside Stellar-based wallet and payment infrastructure to support real-world capital flows.
 
 ### Future Integrations
 
-As the platform scales, RegenX may integrate additional ecosystem components such as:
-- liquidity routing (e.g. DEX aggregation)
-- cross-border payment rails
-- institutional custody solutions
-
-These integrations will expand liquidity, usability, and global reach.
+As the platform scales, RegenX may evaluate additional approved ecosystem building blocks for on/off-ramping, liquidity routing, and institutional wallet infrastructure.
