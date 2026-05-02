@@ -147,3 +147,47 @@ The platform is expected to generate:
 RegenX is not simply tokenising assets. It is building a regulated capital formation and settlement layer for real-world infrastructure assets on Stellar.
 
 The platform combines off-chain legal structuring with on-chain issuance, wallet infrastructure, stablecoin settlement, and auditable ownership records.
+
+## 13. Integration with Stellar Ecosystem Building Blocks
+
+RegenX is designed to integrate with key Stellar ecosystem building blocks to support wallet infrastructure, payments, and settlement.
+
+### Wallet & User Authentication
+RegenX will integrate with:
+- Stellar Wallets Kit for wallet connection and authentication
+- Freighter and/or embedded wallet solutions for investor interaction
+
+This enables secure wallet interaction and trustline management for investors.
+
+### Payments & Distributions
+RegenX will integrate with:
+- Stellar Disbursement Platform (SDP) for automated bulk payment distributions
+
+This supports:
+- investor distributions
+- yield payments
+- recurring settlement flows
+
+### Asset Issuance & Anchor Infrastructure
+RegenX leverages:
+- Stellar native asset issuance (issuer + distributor model)
+- Anchor-based infrastructure (where required) to support fiat ↔ stablecoin flows
+
+This supports AUDD-based capital flows and on/off-ramping.
+
+### Stablecoin & Settlement Layer
+RegenX integrates AUDD as the primary settlement asset for:
+- subscriptions
+- capital deployment
+- distributions
+
+Future integrations may include additional on/off-ramp providers from the Stellar ecosystem.
+
+### Future Integrations
+
+As the platform scales, RegenX may integrate additional ecosystem components such as:
+- liquidity routing (e.g. DEX aggregation)
+- cross-border payment rails
+- institutional custody solutions
+
+These integrations will expand liquidity, usability, and global reach.
