@@ -1,77 +1,52 @@
-# RegenX
+# RegenX Platform
 
-**RegenX** is a direct investment platform enabling institutional and community investors to fund clean energy infrastructure projects — with full transparency, traceability, and liquidity. Built on the Stellar blockchain, RegenX tokenizes climate-positive infrastructure to unlock trusted access and accelerate the net-zero transition.
+RegenX is a tokenised infrastructure platform built on Stellar, enabling wholesale investors to access clean energy assets such as solar and battery storage through structured, on-chain investment products.
 
----
+## Overview
 
-## 🔧 MVP Overview
+RegenX bridges real-world infrastructure and blockchain-based capital markets by structuring projects into regulated investment vehicles and representing project ownership as Stellar-issued assets.
 
-The MVP is live on Stellar Testnet and includes:
+## Key Features
 
-- Investor onboarding & login
-- Project creation by clean energy developers
-- Tokenized asset issuance (e.g. solar panel units)
-- Offer creation and capital commitment
-- Wallet-based asset ownership and transaction flow
+- Tokenised real-world assets for clean energy infrastructure
+- Stellar issuer and distributor wallet model
+- Investor-level custodial wallets
+- Trustline-based asset ownership
+- On-chain transaction records mirrored with off-chain ownership records
+- AUDD stablecoin settlement pathway
+- Investor onboarding, project approval, token issuance and reporting workflows
 
-Our MVP is designed to support primary capital raises and eventually connect to Stellar DEX for secondary liquidity.
+## Stellar Architecture
 
----
+RegenX uses Stellar for:
 
-## 📍 Platform Structure
+- Asset issuance
+- Investor wallet creation
+- Trustline management
+- Token allocation
+- AUDD settlement flows
+- Transaction auditability
 
-| Module              | Description |
-|---------------------|-------------|
-| Frontend            | Investor dashboard (React/Next.js) |
-| Backend             | Node.js API with Stellar SDK integration |
-| Blockchain Layer    | Stellar Testnet for token issuance and payment flows |
-| Asset Tokenization  | Using Stellar-issued assets mapped to project units |
-| Wallet Integration  | Stellar wallets managed via session auth or browser extension (TBD) |
+See the technical architecture document:
 
----
+[Technical Architecture](docs/technical-architecture.md)
 
-## 📈 Roadmap to Mainnet
+## Current Status
 
-| Milestone                     | Timeline |
-|------------------------------|----------|
-| SCF Voting + Community Round | June 2025 |
-| Expanded Testnet Access      | June–July 2025 |
-| Security & Audit Prep        | July 2025 |
-| dMRV + On-Chain Impact Layer | Aug 2025 |
-| Stellar Mainnet Deployment   | Sep–Oct 2025 |
-| Live Pilot (Wyndham)         | Q4 2025 |
+- MVP live on Stellar Testnet
+- End-to-end transaction flow implemented
+- Clean energy pilot project onboarded
+- Backend and frontend actively developed
+- Preparing for AUDD integration, investor wallet provisioning and mainnet launch
 
----
+## Repository Purpose
 
-## 🔐 Compliance & Security
+This repository provides the public product and architecture overview for RegenX.
 
-- Project targeting wholesale/institutional investors only
-- Token model structured to reduce regulatory risk (non-retail)
-- Smart contract audits scheduled pre-mainnet
-- Full audit trail and traceability built into token logic
+Core production systems are maintained separately and include backend API, frontend application and Stellar integration services.
 
----
+## Contact
 
-## 🤝 Partnerships
+Website: https://regenx.io
 
-- **Sunified** – Clean energy developer (5MW pilot)
-- **Wyndham Council** – Local council PoC partner
-- **Stellar Development Foundation** – SCF community round candidate
-
----
-
-## 📺 Demo Access
-
-> Full MVP walkthrough video available upon request  
-> Demo access currently restricted to protect testnet integrity
-
----
-
-## 📬 Contact
-
-Founder: [Ishan Dan](mailto:ishan@regenx.io)  
-Website: [https://regenx.io](https://regenx.io)
-
----
-
-*Proudly built on Stellar to power climate finance.*
+Built on Stellar to power real-world asset finance.
