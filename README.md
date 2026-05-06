@@ -1,52 +1,101 @@
 # RegenX Platform
 
-RegenX is a tokenised infrastructure platform built on Stellar, enabling wholesale investors to access clean energy assets such as solar and battery storage through structured, on-chain investment products.
+RegenX is a tokenised infrastructure platform that enables institutional and wholesale investors to access clean energy assets through structured, on-chain investment products.
 
-## Overview
+---
 
-RegenX bridges real-world infrastructure and blockchain-based capital markets by structuring projects into regulated investment vehicles and representing project ownership as Stellar-issued assets.
+## The Problem
 
-## Key Features
+Mid-scale renewable energy projects such as solar and battery storage face a structural funding gap.
 
-- Tokenised real-world assets for clean energy infrastructure
-- Stellar issuer and distributor wallet model
-- Investor-level custodial wallets
-- Trustline-based asset ownership
-- On-chain transaction records mirrored with off-chain ownership records
-- AUDD stablecoin settlement pathway
-- Investor onboarding, project approval, token issuance and reporting workflows
+They are:
+- too small or complex for traditional project finance
+- capital intensive with fragmented funding pathways
+- constrained by limited liquidity and investor access
 
-## Stellar Architecture
+At the same time, investors:
+- struggle to access infrastructure-grade opportunities
+- face high minimums and long lock-ups
+- lack transparent secondary liquidity
 
-RegenX uses Stellar for:
+---
 
-- Asset issuance
-- Investor wallet creation
-- Trustline management
-- Token allocation
-- AUDD settlement flows
-- Transaction auditability
+## The Solution
 
-See the technical architecture document:
+RegenX structures clean energy projects into regulated investment vehicles and represents ownership as tokenised assets on Stellar.
 
-[Technical Architecture](docs/technical-architecture.md)
+This enables:
+- fractional access to infrastructure investments
+- programmable settlement and ownership
+- transparent asset tracking
+- future liquidity through secondary markets
+
+---
+
+## How It Works
+
+Developer → Project Submission → RegenX Structuring  
+→ Tokenised Asset Issuance (Stellar)  
+→ Investor Access & Subscription  
+→ Ownership Recorded On-Chain + Off-Chain  
+→ Ongoing Reporting & Distributions  
+
+---
+
+## Platform Architecture
+
+Investors / Developers / Admin  
+        ↓  
+Frontend (core-ui)  
+        ↓  
+Backend API (core-api)  
+        ↓  
+PostgreSQL Database  
+        ↓  
+Stellar Network  
+        ↓  
+AUDD (Settlement Layer - planned)  
+
+---
+
+## Key Capabilities
+
+- Project onboarding and structuring  
+- Investor verification and eligibility workflows  
+- Tokenised asset issuance (issuer + distributor model)  
+- Trustline-based investor ownership  
+- Stellar transaction execution (XDR flow)  
+- Off-chain ownership tracking  
+- Admin approval and lifecycle management  
+
+---
+
+## Repository Structure
+
+regenx-platform/  
+  core-api/    Backend services  
+  core-ui/     Frontend application  
+  docs/        Architecture and workflow documentation  
+
+---
 
 ## Current Status
 
-- MVP live on Stellar Testnet
-- End-to-end transaction flow implemented
-- Clean energy pilot project onboarded
-- Backend and frontend actively developed
-- Preparing for AUDD integration, investor wallet provisioning and mainnet launch
+- MVP live on Stellar Testnet  
+- End-to-end flow implemented  
+- Pilot projects in progress  
+- Preparing for mainnet and capital deployment  
 
-## Repository Purpose
+---
 
-This repository provides the public product and architecture overview for RegenX.
+## Why RegenX Wins
 
-Core production systems are maintained separately and include backend API, frontend application and Stellar integration services.
+RegenX is not a marketplace.  
 
-## Contact
+It is infrastructure for capital formation in clean energy.  
 
-Website: https://regenx.io
+---
 
-Built on Stellar to power real-world asset finance.
+## Disclaimer
+
+This repository is an investor-facing technical overview. Sensitive infrastructure files and credentials are excluded.
