@@ -1,4 +1,4 @@
-##RegenX Platform
+## RegenX Platform
 RegenX is a tokenised infrastructure platform that enables institutional and wholesale investors to access clean energy assets through structured, on-chain investment products.
 It bridges the gap between real-world infrastructure and modern capital markets by combining regulated investment structures with blockchain-based ownership, settlement, and lifecycle management.
 ---
