@@ -1,104 +1,121 @@
 # RegenX Platform
 
-RegenX is a tokenised infrastructure platform designed to enable institutional and wholesale investors to access clean energy assets through structured, on-chain investment products. It bridges real-world infrastructure with modern capital markets by combining regulated investment structures with blockchain-based ownership and settlement.
+RegenX is a tokenised infrastructure platform that enables institutional and wholesale investors to access clean energy assets through structured, on-chain investment products.
+
+It bridges the gap between real-world infrastructure and modern capital markets by combining regulated investment structures with blockchain-based ownership, settlement, and lifecycle management.
 
 ---
 
 ## The Problem
 
-Mid-scale renewable energy projects such as solar and battery storage face a structural funding gap that slows deployment and limits investor access.
+Mid-scale renewable energy projects, particularly solar and battery storage, sit in a structural funding gap.
 
-Key constraints include:
-- Projects are too small or complex for traditional project finance
-- Capital raising is fragmented and inefficient
-- Limited liquidity reduces investor participation
+These projects are:
+- too small or complex for traditional project finance
+- capital intensive with fragmented funding pathways
+- constrained by limited liquidity and investor access
 
 At the same time, investors face:
-- High minimum investment thresholds → limited accessibility
-- Long lock-up periods → reduced flexibility
-- Poor access to deal flow → missed opportunities
+- high minimums and restricted access to infrastructure deals
+- long lock-up periods with no liquidity
+- limited transparency across the investment lifecycle
 
-👉 Result: Capital supply and project demand are misaligned.
+👉 Result: capital supply and project demand remain structurally misaligned.
 
 ---
 
 ## The Solution
 
-RegenX structures clean energy projects into regulated investment vehicles and represents ownership as tokenised assets on Stellar.
+RegenX transforms clean energy projects into structured, investable products by combining regulated vehicles with tokenised ownership on Stellar.
 
 This enables:
-- Fractional ownership → broader investor access
-- Transparent ownership tracking → improved trust
-- Programmable settlement → efficient execution
-- Future liquidity pathways → secondary market potential
+- fractional access to infrastructure assets
+- transparent ownership and reporting
+- programmable settlement and transaction execution
+- future pathways to secondary liquidity
 
-👉 RegenX acts as a capital formation layer, aligning: Developers → Structured Assets → Investors
+👉 RegenX acts as a capital formation layer:
+Developers → Structured Assets → Investors
 
 ---
 
 ## How It Works
 
-The platform transforms a clean energy project into an investable product through a structured workflow.
+
+
+👉 The workflow is controlled, auditable, and designed for institutional capital flows.
+
+---
+
+## Capital Flow
 
 
 
-👉 Each step is controlled, auditable, and scalable.
+👉 RegenX orchestrates the flow between capital and infrastructure.
 
 ---
 
 ## Platform Architecture
 
-RegenX is designed as a layered system separating user experience, business logic, and blockchain execution.
 
 
+👉 Separation of concerns enables scalability, control, and compliance.
 
 ---
 
 ## Key Capabilities
 
-RegenX provides infrastructure across the full investment lifecycle.
-
-- Project onboarding → developers submit and structure clean energy assets
-- Investor verification → eligibility and compliance workflows are enforced
-- Token issuance → issuer + distributor model
+- Project onboarding → structured developer submissions
+- Investor verification → eligibility and compliance workflows
+- Token issuance → issuer + distributor wallet model
 - Ownership model → trustline-based asset holding
-- Transaction flow → unsigned XDR → client signing → backend submission
+- Transaction execution → XDR build → sign → submit
 - Data layer → off-chain ownership tracking and reporting
-- Admin control → approvals, monitoring, and lifecycle management
+- Admin controls → approvals, monitoring, lifecycle management
 
-👉 Designed for institutional-grade capital flows.
+👉 Built for institutional-grade capital deployment, not retail trading.
 
 ---
 
 ## Repository Structure
 
-regenx-platform/
-  core-api/    Backend services
-  core-ui/     Frontend application
-  docs/        Documentation
+
 
 ---
 
 ## Current Status
 
 - MVP live on Stellar Testnet
-- End-to-end flow implemented
-- Pilot projects in progress
-- Preparing for mainnet deployment
+- End-to-end investment flow implemented
+- Clean energy pilot projects onboarded
+- Backend and frontend fully integrated
+
+Next phase:
+- Mainnet deployment
+- AUDD integration for settlement
+- Execution of live pilot transactions
+
+👉 Transitioning from MVP to live capital infrastructure.
 
 ---
 
 ## Why RegenX Wins
 
-- Institutional alignment
-- Reduced friction in capital deployment
-- Fractional infrastructure ownership
-- Pathway to liquidity
+RegenX is not a marketplace.
 
-👉 Positioned as infrastructure, not a marketplace.
+It is infrastructure for capital formation in clean energy.
+
+It wins by:
+- aligning with institutional investment structures
+- reducing friction in capital deployment
+- enabling fractional ownership of infrastructure assets
+- introducing a pathway to liquidity in private markets
+
+👉 Positioned as a foundational layer for tokenised real-world assets.
 
 ---
 
 ## Disclaimer
 
-This repository is an investor-facing technical overview. Sensitive data is excluded.
+This repository is an investor-facing technical overview.
+Sensitive infrastructure files, credentials, and operational configurations are excluded.
