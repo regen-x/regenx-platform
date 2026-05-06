@@ -1,0 +1,19 @@
+entity: UserEntity
+items:
+  admin-user:
+    uuid: '28a129c4-7526-449e-98d0-4410333b446a'
+    email: 'admin@test.com'
+    externalId: '00000000-0000-0000-0000-00000000000X'
+    role: admin
+    fullname: 'Admin User'
+    birthdate: '2000-01-01'
+    phoneNumber: '1234567890'
+    type: 'climate_developer'
+  user{2..23}:
+    email: '{{internet.email}}'
+    externalId: '{{string.uuid}}'
+    role: regular
+    fullname: '{{person.fullName}}'
+    birthdate: '{{date.past}}'
+    phoneNumber: '1234567890'
+    type: 'climate_developer'

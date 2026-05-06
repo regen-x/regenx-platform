@@ -1,0 +1,479 @@
+import { useEffect, useMemo, useState } from 'react';
+import {
+	buildAddTrustlineXdr,
+	hasTrustline,
+	submitSignedXdr,
+} from '@/utils/stellarTrustline';
+import TokenLink from '@/components/common/TokenLink';
+
+type Props = {
+	isOpen: boolean;
+	onSubmit: (payload: any) => Promise<void> | void;
+	closeModal: () => void;
+	investorAddress?: string;
+	tokenAddress?: string;
+	tokenPrice?: number;
+	tokenSymbol?: string;
+	projectName?: string;
+	projectStatus?: string;
+	assetCode?: string;
+	assetIssuer?: string;
+	distributorWalletPublic?: string;
+	onConnectWallet?: () => Promise<void> | void;
+	onSignTransaction?: (xdr: string, description: string) => Promise<string>;
+};
+
+type CustodyType = 'REGENX' | 'SELF';
+
+function toNumber(value: unknown): number {
+	const parsed = Number(value);
+	return Number.isFinite(parsed) ? parsed : 0;
+}
+
+export default function BuyTokensModal({
+	isOpen,
+	onSubmit,
+	closeModal,
+	investorAddress,
+	tokenPrice = 1,
+	tokenSymbol = 'TOKEN',
+	projectName = 'Investment Opportunity',
+	projectStatus,
+	assetCode,
+	assetIssuer,
+	distributorWalletPublic,
+	onConnectWallet,
+	onSignTransaction,
+}: Props) {
+	const [custodyType, setCustodyType] = useState<CustodyType>('SELF');
+	const [amountAud, setAmountAud] = useState(25000);
+	const [submitting, setSubmitting] = useState(false);
+	const [error, setError] = useState('');
+	const [checkingTrustline, setCheckingTrustline] = useState(false);
+	const [creatingTrustline, setCreatingTrustline] = useState(false);
+	const [hasRequiredTrustline, setHasRequiredTrustline] = useState(false);
+	const [trustlineError, setTrustlineError] = useState('');
+
+	useEffect(() => {
+		if (!isOpen) {
+			setCustodyType('SELF');
+			setAmountAud(25000);
+			setSubmitting(false);
+			setError('');
+			setCheckingTrustline(false);
+			setCreatingTrustline(false);
+			setHasRequiredTrustline(false);
+			setTrustlineError('');
+		}
+	}, [isOpen]);
+
+	const needsTrustline = custodyType === 'SELF';
+
+	useEffect(() => {
+		const checkTrustline = async () => {
+			if (!isOpen || !needsTrustline) {
+				setHasRequiredTrustline(false);
+				setTrustlineError('');
+				return;
+			}
+
+			if (!investorAddress) {
+				setHasRequiredTrustline(false);
+				setTrustlineError('Connect your wallet to continue with self custody.');
+				return;
+			}
+
+			if (!assetCode || !assetIssuer) {
+				setHasRequiredTrustline(false);
+				setTrustlineError('Project asset metadata is incomplete.');
+				return;
+			}
+
+			try {
+				setCheckingTrustline(true);
+				setTrustlineError('');
+				const trusted = await hasTrustline(investorAddress, assetCode, assetIssuer);
+				setHasRequiredTrustline(trusted);
+				if (!trusted) {
+					setTrustlineError(
+						`A trustline for ${assetCode}:${assetIssuer} is required before purchase.`,
+					);
+				}
+			} catch (err: any) {
+				setHasRequiredTrustline(false);
+				setTrustlineError(err?.message || 'Failed to check trustline.');
+			} finally {
+				setCheckingTrustline(false);
+			}
+		};
+
+		void checkTrustline();
+	}, [isOpen, needsTrustline, investorAddress, assetCode, assetIssuer]);
+
+	const handleCreateTrustline = async () => {
+		if (!investorAddress) {
+			setTrustlineError('Connect your wallet before creating a trustline.');
+			return;
+		}
+
+		if (!assetCode || !assetIssuer) {
+			setTrustlineError('Project asset metadata is incomplete.');
+			return;
+		}
+
+		if (!onSignTransaction) {
+			setTrustlineError('Wallet signing is not available.');
+			return;
+		}
+
+		try {
+			setCreatingTrustline(true);
+			setTrustlineError('');
+			const unsignedXdr = await buildAddTrustlineXdr(
+				investorAddress,
+				assetCode,
+				assetIssuer,
+			);
+			const signedXdr = await onSignTransaction(
+				unsignedXdr,
+				`Create trustline for ${assetCode}`,
+			);
+			await submitSignedXdr(signedXdr);
+			setHasRequiredTrustline(true);
+		} catch (err: any) {
+			setHasRequiredTrustline(false);
+			setTrustlineError(
+				err?.response?.data?.extras?.result_codes?.operations?.[0] ||
+					err?.message ||
+					'Trustline creation failed.',
+			);
+		} finally {
+			setCreatingTrustline(false);
+		}
+	};
+
+	const tokenAmount = useMemo(() => {
+		if (!tokenPrice) return 0;
+		return toNumber(amountAud / tokenPrice);
+	}, [amountAud, tokenPrice]);
+
+	if (!isOpen) return null;
+
+	const handleSubmit = async () => {
+		try {
+			setSubmitting(true);
+			setError('');
+
+			if (projectStatus && projectStatus !== 'live') {
+				throw new Error('This project is not live for investment yet.');
+			}
+
+			if (!distributorWalletPublic) {
+				throw new Error('Project inventory wallet is not configured.');
+			}
+
+			if (custodyType === 'SELF') {
+				if (!investorAddress) {
+					throw new Error('Connect your wallet before continuing.');
+				}
+
+				if (!assetCode || !assetIssuer) {
+					throw new Error('Project asset metadata is incomplete.');
+				}
+
+				if (!hasRequiredTrustline) {
+					throw new Error('Create the required trustline before continuing.');
+				}
+			}
+
+			await onSubmit({
+				custodyType,
+				amount: tokenAmount,
+				tokenAmount,
+				tokenSymbol,
+				investorAddress,
+				assetCode,
+				assetIssuer,
+				distributorWalletPublic,
+			});
+
+			closeModal();
+		} catch (err: any) {
+			setError(err?.message || 'Failed to continue with investment options.');
+		} finally {
+			setSubmitting(false);
+		}
+	};
+
+	return (
+		<div className="fixed inset-0 z-[100] flex items-center justify-center bg-[rgba(15,23,42,0.55)] px-4 py-5">
+			<div className="w-full max-w-[720px] max-h-[88vh] overflow-y-auto rounded-[20px] border border-[#E7ECF4] bg-white p-5 shadow-[0_24px_60px_rgba(15,23,42,0.20)]">
+				<div className="flex items-start justify-between gap-4">
+					<div>
+						<div className="inline-flex rounded-[8px] bg-[#DDEBFF] px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#346FB6]">
+							Investment Options
+						</div>
+						<h2 className="mt-2 text-[26px] font-semibold tracking-[-0.03em] text-[#163F74]">
+							{projectName}
+						</h2>
+						<p className="mt-2 max-w-[620px] text-[13px] leading-[1.75] text-[#5F6C86]">
+							Choose how you want to hold this position. RegenX Custody is the
+							simpler path for most investors. Self Custody is designed for
+							investors who want direct wallet control.
+						</p>
+					</div>
+
+					<button
+						type="button"
+						onClick={closeModal}
+						className="rounded-[12px] border border-[#E7ECF4] px-4 py-2 text-[13px] font-semibold text-[#5F6C86]"
+					>
+						Close
+					</button>
+				</div>
+
+				<div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2">
+					<button
+						type="button"
+						onClick={() => setCustodyType('REGENX')}
+						disabled
+						className={`rounded-[18px] border p-4 text-left transition ${
+							custodyType === 'REGENX'
+								? 'border-[#123DA8] bg-[#F4F8FF] shadow-[0_8px_18px_rgba(18,61,168,0.08)]'
+								: 'border-[#E7ECF4] bg-white opacity-60'
+						}`}
+					>
+						<div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#346FB6]">
+							Unavailable
+						</div>
+						<h3 className="mt-2 text-[16px] font-semibold text-[#163F74]">
+							RegenX Custody
+						</h3>
+						<p className="mt-2 text-[13px] leading-[1.7] text-[#5F6C86]">
+							This path is temporarily disabled until the custody settlement rail
+							can confirm ownership only after settled execution.
+						</p>
+						<div className="mt-4 space-y-2 text-[12px] text-[#5F6C86]">
+							<div>• Not active for live purchases today</div>
+							<div>• Ownership will not update through an unconfirmed custody path</div>
+							<div>• Use self custody for the signed Stellar purchase flow</div>
+						</div>
+					</button>
+
+					<button
+						type="button"
+						onClick={() => setCustodyType('SELF')}
+						className={`rounded-[18px] border p-4 text-left transition ${
+							custodyType === 'SELF'
+								? 'border-[#123DA8] bg-[#F4F8FF] shadow-[0_8px_18px_rgba(18,61,168,0.08)]'
+								: 'border-[#E7ECF4] bg-white'
+						}`}
+					>
+						<div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#346FB6]">
+							Advanced
+						</div>
+						<h3 className="mt-2 text-[16px] font-semibold text-[#163F74]">
+							Self Custody
+						</h3>
+						<p className="mt-2 text-[13px] leading-[1.7] text-[#5F6C86]">
+							You connect your wallet, ensure the required trustline exists,
+							sign the transaction client-side, and only receive ownership after
+							confirmed settlement.
+						</p>
+						<div className="mt-4 space-y-2 text-[12px] text-[#5F6C86]">
+							<div>• Direct wallet control</div>
+							<div>• Requires wallet connection and signing</div>
+							<div>• Better suited to crypto-native users</div>
+						</div>
+					</button>
+				</div>
+
+				<div className="mt-5 rounded-[18px] border border-[#E7ECF4] bg-[#F7F8FB] p-4">
+					<div className="grid grid-cols-1 gap-4 md:grid-cols-[1.2fr_0.8fr]">
+						<div>
+							<div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#8FA0B8]">
+								Investment Amount (AUD)
+							</div>
+
+							<input
+								type="text"
+								inputMode="numeric"
+								value={amountAud.toLocaleString()}
+								onChange={(e) => {
+									const raw = e.target.value.replace(/,/g, '');
+									setAmountAud(toNumber(raw));
+								}}
+								className="mt-2 w-full rounded-[12px] border border-[#A9B7CF] bg-white px-4 py-3 text-[16px] font-semibold text-[#1B2F56] outline-none"
+							/>
+
+							<div className="mt-4 rounded-[14px] border border-[#E7ECF4] bg-white p-4">
+								<div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#8FA0B8]">
+									Settlement Rail
+								</div>
+								<p className="mt-2 text-[13px] leading-[1.75] text-[#5F6C86]">
+									Investor commitments are denominated in AUD. Where supported,
+									settlement may occur through AUDD for on chain execution and
+									reporting, while maintaining an AUD based investment
+									experience.
+								</p>
+							</div>
+						</div>
+
+						<div className="rounded-[14px] border border-[#D7E3FF] bg-[#F4F8FF] p-4">
+							<div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#8FA0B8]">
+								Allocation Summary
+							</div>
+
+							<div className="mt-4 space-y-3 text-[13px] text-[#5F6C86]">
+								<div className="flex items-center justify-between gap-4">
+									<span>Selected custody</span>
+									<span className="font-semibold text-[#163F74]">
+										{custodyType === 'REGENX'
+											? 'RegenX Custody'
+											: 'Self Custody'}
+									</span>
+								</div>
+
+								<div className="flex items-center justify-between gap-4">
+									<span>Amount (AUD)</span>
+									<span className="font-semibold text-[#163F74]">
+										${amountAud.toLocaleString()}
+									</span>
+								</div>
+
+									<div className="flex items-center justify-between gap-4">
+										<span>Estimated units</span>
+										<span className="font-semibold text-[#163F74]">
+											{tokenAmount.toLocaleString()}{' '}
+											<TokenLink
+												assetCode={assetCode || tokenSymbol}
+												assetIssuer={assetIssuer}
+												status={projectStatus}
+												className="hover:underline"
+											>
+												{tokenSymbol}
+											</TokenLink>
+										</span>
+									</div>
+
+								<div className="flex items-center justify-between gap-4">
+									<span>Wallet</span>
+									<span className="max-w-[190px] truncate font-semibold text-[#163F74]">
+										{investorAddress || 'Not connected'}
+									</span>
+								</div>
+							</div>
+						</div>
+					</div>
+				</div>
+
+				{custodyType === 'SELF' ? (
+					<div className="mt-4 rounded-[18px] border border-[#E7ECF4] bg-[#F7F8FB] p-4">
+						<div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#8FA0B8]">
+							Trustline Readiness
+						</div>
+
+						<div className="mt-3 space-y-2 text-[13px] text-[#5F6C86]">
+							<div>
+								Asset:
+								<span className="ml-2 font-semibold text-[#163F74]">
+									{assetCode && assetIssuer
+										? `${assetCode}:${assetIssuer}`
+										: 'Missing asset metadata'}
+								</span>
+							</div>
+							<div>
+								Inventory wallet:
+								<span className="ml-2 font-semibold text-[#163F74]">
+									{distributorWalletPublic || 'Not configured'}
+								</span>
+							</div>
+							<div>
+								Wallet:
+								<span className="ml-2 font-semibold text-[#163F74]">
+									{investorAddress || 'Not connected'}
+								</span>
+							</div>
+						</div>
+
+						{checkingTrustline ? (
+							<p className="mt-3 text-[12px] text-[#5F6C86]">
+								Checking trustline...
+							</p>
+						) : hasRequiredTrustline ? (
+							<p className="mt-3 text-[12px] font-semibold text-[#1D6B3A]">
+								Trustline ready. You can continue to sign the buy transaction.
+							</p>
+						) : (
+							<p className="mt-3 text-[12px] text-[#B42318]">
+								{trustlineError || 'A trustline is required before purchase.'}
+							</p>
+						)}
+
+						<div className="mt-4 flex flex-wrap gap-3">
+							{!investorAddress && onConnectWallet ? (
+								<button
+									type="button"
+									onClick={async () => {
+										try {
+											setTrustlineError('');
+											await onConnectWallet();
+										} catch (err: any) {
+											setTrustlineError(
+												err?.message || 'Failed to connect wallet.',
+											);
+										}
+									}}
+									className="rounded-[12px] border border-[#2F80ED] bg-white px-4 py-2.5 text-[13px] font-semibold text-[#2F80ED]"
+								>
+									Connect Wallet
+								</button>
+							) : null}
+
+							{investorAddress && !hasRequiredTrustline ? (
+								<button
+									type="button"
+									onClick={handleCreateTrustline}
+									disabled={creatingTrustline || checkingTrustline}
+									className="rounded-[12px] border border-[#2F80ED] bg-white px-4 py-2.5 text-[13px] font-semibold text-[#2F80ED] disabled:opacity-60"
+								>
+									{creatingTrustline ? 'Creating Trustline...' : 'Create Trustline'}
+								</button>
+							) : null}
+						</div>
+					</div>
+				) : null}
+
+				{error ? (
+					<div className="mt-4 rounded-[14px] border border-[#F3D2D2] bg-[#FFF5F5] px-4 py-3 text-[12px] text-[#B42318]">
+						{error}
+					</div>
+				) : null}
+
+				<div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+					<button
+						type="button"
+						onClick={closeModal}
+						className="rounded-[12px] border border-[#E7ECF4] px-4 py-2.5 text-[13px] font-semibold text-[#5F6C86]"
+					>
+						Cancel
+					</button>
+
+					<button
+						type="button"
+						onClick={handleSubmit}
+						disabled={
+							submitting ||
+							(projectStatus ? projectStatus !== 'live' : false) ||
+							(custodyType === 'SELF' &&
+								(!investorAddress || !assetCode || !assetIssuer || !hasRequiredTrustline))
+						}
+						className="rounded-[12px] bg-[#123DA8] px-5 py-2.5 text-[13px] font-semibold text-white shadow-[0_4px_12px_rgba(18,61,168,0.22)] disabled:opacity-60"
+					>
+										{submitting ? 'Preparing investment...' : 'Continue to Signed Purchase'}
+					</button>
+				</div>
+			</div>
+		</div>
+	);
+}

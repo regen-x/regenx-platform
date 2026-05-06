@@ -1,0 +1,18 @@
+entity: user
+items:
+  admin-user:
+    email: 'admin@test.com'
+    externalId: '00000000-0000-0000-0000-00000000000X'
+    role: admin
+    fullname: 'Admin User'
+    birthdate: '2000-01-01'
+    phoneNumber: '1234567890'
+    type: 'climate_developer'
+  error-user:
+    email: 'error@test.com'
+    externalId: '00000000-0000-0000-0000-00000000000Z'
+    role: admin
+    fullname: 'Error User'
+    birthdate: '2000-01-01'
+    phoneNumber: '1234567890'
+    type: 'climate_developer'

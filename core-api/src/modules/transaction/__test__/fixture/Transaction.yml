@@ -1,0 +1,29 @@
+entity: TransactionEntity
+items:
+  transaction0:
+    uuid: '28a129c4-7526-449e-98d0-4410333b446a'
+    amount: 1000
+    type: 'direct_purchase'
+    buyer: '@user1'
+    project: '@project0'
+    createdAt: '2024-01-01'
+    updatedAt: '2024-01-01'
+
+  transaction1:
+    uuid: '28a129c4-7526-449e-98d0-4410333b446b'
+    amount: 2000
+    type: 'direct_purchase'
+    buyer: '@user1'
+    project: '@project1'
+    createdAt: '2024-01-02'
+    updatedAt: '2024-01-02'
+
+  transaction2:
+    uuid: '28a129c4-7526-449e-98d0-4410333b446c'
+    amount: 3000
+    type: 'offer_purchase'
+    buyer: '@user2'
+    seller: '@user1'
+    project: '@project0'
+    createdAt: '2024-01-03'
+    updatedAt: '2024-01-03'

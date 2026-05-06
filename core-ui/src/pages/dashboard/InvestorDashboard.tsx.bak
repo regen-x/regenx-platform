@@ -1,0 +1,910 @@
+import { Bell, Filter, Search } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+
+import TokenLink from '@/components/common/TokenLink';
+import ThemeToggle from '@/components/ui/ThemeToggle';
+import { useOwnershipHoldings } from '@/hooks/useOwnershipHoldings';
+import { IDistribution, IDistributionSummary } from '@/interfaces/api/IDistribution';
+import { IOrder, IOrderSummary } from '@/interfaces/api/IOrder';
+import { distributionService } from '@/services/distribution.service';
+import { orderService } from '@/services/order.service';
+import { useUserStore } from '@/store/user.store';
+import { offHoldingsUpdated, onHoldingsUpdated } from '@/utils/events';
+
+type InvestorHolding = {
+	id: string;
+	projectId: number;
+	name: string;
+	status: 'Live';
+	tokenSymbol: string;
+	assetCode?: string;
+	assetIssuer?: string | null;
+	projectStatus?: string;
+	custodyType: 'self_custody' | 'regenx_custody';
+	ownershipSource?: 'ON_CHAIN' | 'INTERNAL_LEDGER';
+	settlementStatus?: 'PENDING' | 'SUBMITTED' | 'SETTLED' | 'FAILED' | 'CANCELLED';
+	amountHeld: number;
+	estimatedValue: number | null;
+	custodyLabel: string;
+	thumbnailUrl: string;
+};
+
+function formatUnits(value: number) {
+	return value.toLocaleString();
+}
+
+function money(value?: number | null, currency = 'AUD') {
+	return value == null || Number.isNaN(Number(value))
+		? 'Unavailable'
+		: new Intl.NumberFormat('en-AU', {
+				style: 'currency',
+				currency,
+				maximumFractionDigits: 2,
+		  }).format(Number(value));
+}
+
+function percent(value?: number | null) {
+	return value == null || Number.isNaN(Number(value))
+		? 'Pending'
+		: `${Number(value).toFixed(2)}%`;
+}
+
+function formatDate(value?: string | null, emptyLabel = 'Unavailable') {
+	return value ? new Date(value).toLocaleDateString() : emptyLabel;
+}
+
+function getGreeting() {
+	const hour = new Date().getHours();
+
+	if (hour < 12) return 'Good morning';
+	if (hour < 18) return 'Good afternoon';
+	return 'Good evening';
+}
+
+function getHoldingThumbnail(name: string) {
+	const normalized = String(name || '').toLowerCase();
+
+	if (
+		normalized.includes('eliot') ||
+		normalized.includes('battery') ||
+		normalized.includes('bess')
+	) {
+		return '/images/eliot.jpg';
+	}
+
+	if (normalized.includes('solar')) {
+		return 'https://images.unsplash.com/photo-1509391366360-2e959784a276?q=80&w=1600&auto=format&fit=crop';
+	}
+
+	if (normalized.includes('ev')) {
+		return '/images/eliot.jpg';
+	}
+
+	return 'https://images.unsplash.com/photo-1509391366360-2e959784a276?q=80&w=1600&auto=format&fit=crop';
+}
+
+function InvestorKpiCard({
+	title,
+	value,
+	subtitle,
+	accent = 'blue',
+}: {
+	title: string;
+	value: string | number;
+	subtitle: string;
+	accent?: 'blue' | 'pink' | 'neutral';
+}) {
+	const styles =
+		accent === 'pink'
+			? 'theme-surface-muted'
+			: accent === 'blue'
+			? 'theme-surface-muted'
+			: 'theme-surface';
+
+	const valueColor = accent === 'pink' ? 'theme-text-secondary' : 'theme-heading';
+	const valueLabel = String(value);
+	const valueSizeClass =
+		valueLabel.length > 14 ? 'text-[18px] leading-tight' : 'text-[21px] leading-none';
+
+	return (
+		<div
+			className={`rounded-[12px] border px-5 py-4 shadow-[var(--shadow-soft)] ${styles}`}
+		>
+			<div className="theme-text-secondary text-[13px] font-semibold uppercase tracking-[0.12em]">
+				{title}
+			</div>
+			<div
+				className={`mt-2 font-semibold ${valueSizeClass} ${valueColor}`}
+			>
+				{value}
+			</div>
+			<div className="theme-text-secondary mt-2 whitespace-pre-line text-[13px] leading-[1.4]">
+				{subtitle}
+			</div>
+		</div>
+	);
+}
+
+function CustodyPill({
+	custodyType,
+}: {
+	custodyType: InvestorHolding['custodyType'];
+}) {
+	const isSelf = custodyType === 'self_custody';
+
+	return (
+		<span
+			className={`rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] ${
+				isSelf
+					? 'border-[#CAE1FB] bg-[#EFF7FF] text-[#4C86CD]'
+					: 'border-[#F0D9E5] bg-[#FFF2F8] text-[#B34D79]'
+			}`}
+		>
+			{isSelf ? 'Self Custody' : 'RegenX Custody'}
+		</span>
+	);
+}
+
+function InvestmentCard({
+	holding,
+	isSelected,
+	onSelect,
+	onView,
+}: {
+	holding: InvestorHolding;
+	isSelected: boolean;
+	onSelect: () => void;
+	onView: () => void;
+}) {
+	return (
+		<div
+			role="button"
+			tabIndex={0}
+			onClick={onSelect}
+			onKeyDown={(event) => {
+				if (event.key === 'Enter' || event.key === ' ') {
+					event.preventDefault();
+					onSelect();
+				}
+			}}
+			className={`theme-surface overflow-hidden rounded-[18px] border transition ${
+				isSelected
+					? 'border-[#2F80ED] shadow-[0_10px_24px_rgba(47,128,237,0.18)]'
+					: 'border-[var(--border-color)] hover:border-[#BFD3F2]'
+			}`}
+		>
+			<div className="relative h-[160px] w-full overflow-hidden bg-[#EEF4FB]">
+				<img
+					src={holding.thumbnailUrl}
+					alt={holding.name}
+					className="h-full w-full object-cover"
+					onError={(e) => {
+						(e.currentTarget as HTMLImageElement).src = '/images/eliot.jpg';
+					}}
+				/>
+
+				<div className="absolute left-4 top-4 flex items-center justify-between gap-2">
+					<span className="rounded-full border border-[#D7E6FB] bg-white/95 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#2F5EA8]">
+						Investment
+					</span>
+					<span className="rounded-full border border-[#CDECD7] bg-[#EAF8EF] px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#2E8B57]">
+						Live
+					</span>
+					{isSelected ? (
+						<span className="rounded-full border border-[#BFD3F2] bg-white/95 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#1F5AA6]">
+							Selected
+						</span>
+					) : null}
+				</div>
+			</div>
+
+			<div className="p-5">
+				<h3 className="theme-heading text-[18px] font-semibold tracking-[-0.02em]">
+					{holding.name}
+				</h3>
+
+					<div className="mt-3 flex flex-wrap items-center gap-2">
+						<span className="rounded-[8px] bg-[#EAF2FF] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#2F5EA8]">
+							<TokenLink
+								assetCode={holding.assetCode}
+								assetIssuer={holding.assetIssuer}
+								status={holding.projectStatus}
+								className="hover:underline"
+							>
+								{holding.tokenSymbol}
+							</TokenLink>
+						</span>
+					<CustodyPill custodyType={holding.custodyType} />
+				</div>
+
+				<div className="mt-5 grid grid-cols-2 gap-4">
+					<div>
+						<div className="theme-text-muted text-[10px] font-semibold uppercase tracking-[0.12em]">
+							Units Held
+						</div>
+						<div className="theme-heading mt-1 text-[15px] font-semibold">
+							{formatUnits(holding.amountHeld)}
+						</div>
+					</div>
+
+					<div>
+						<div className="theme-text-muted text-[10px] font-semibold uppercase tracking-[0.12em]">
+							Portfolio Share
+						</div>
+						<div className="theme-heading mt-1 text-[15px] font-semibold">
+							{holding.estimatedValue != null
+								? money(holding.estimatedValue)
+								: 'Select to view'}
+						</div>
+					</div>
+				</div>
+
+				<button
+					type="button"
+					onClick={(event) => {
+						event.stopPropagation();
+						onView();
+					}}
+					className="theme-button-secondary mt-5 w-full rounded-[10px] border px-4 py-3 text-[13px] font-semibold uppercase tracking-[0.08em] transition"
+				>
+					View Investment
+				</button>
+			</div>
+		</div>
+	);
+}
+
+function SidePanelItem({
+	title,
+	subtitle,
+	value,
+	barClass,
+}: {
+	title: string;
+	subtitle: string;
+	value: string;
+	barClass: string;
+}) {
+	return (
+		<div className="theme-surface-muted rounded-[12px] border px-4 py-4 shadow-[var(--shadow-soft)]">
+			<div className="flex items-start justify-between gap-3">
+				<div className="flex items-start gap-2.5">
+					<div className={`mt-0.5 h-10 w-[4px] rounded-full ${barClass}`} />
+					<div>
+						<div className="theme-heading text-[14px] font-semibold">
+							{title}
+						</div>
+						<div className="theme-text-secondary mt-0.5 text-[12px]">{subtitle}</div>
+					</div>
+				</div>
+				<div
+					className={`theme-heading max-w-[112px] shrink-0 text-right font-semibold leading-snug tracking-[-0.02em] ${
+						String(value).length > 10
+							? 'text-[14px] md:text-[15px]'
+							: 'text-[16px] md:text-[18px]'
+					}`}
+				>
+					{value}
+				</div>
+			</div>
+		</div>
+	);
+}
+
+function OrderBadge({
+	label,
+	value,
+}: {
+	label: string;
+	value: number;
+}) {
+	return (
+		<div className="rounded-[12px] border border-[#E7ECF4] bg-[#F9FBFE] px-4 py-3">
+			<div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8FA0B8]">
+				{label}
+			</div>
+			<div className="mt-2 text-[22px] font-semibold tracking-[-0.03em] text-[#163F74]">
+				{value}
+			</div>
+		</div>
+	);
+}
+
+function OrderStatusPill({ status }: { status: string }) {
+	const tone =
+		status === 'FAILED'
+			? 'border-[#F3C2CF] bg-[#FFF1F3] text-[#C01048]'
+			: status === 'COMPLETED'
+			? 'border-[#C9D7FF] bg-[#EEF4FF] text-[#3157D6]'
+			: 'border-[#D9E2EF] bg-white text-[#163F74]';
+
+	return (
+		<span
+			className={`inline-flex rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] ${tone}`}
+		>
+			{status.replaceAll('_', ' ')}
+		</span>
+	);
+}
+
+export default function InvestorDashboard() {
+	const navigate = useNavigate();
+	const { user } = useUserStore();
+	const [distributionSummary, setDistributionSummary] =
+		useState<IDistributionSummary | null>(null);
+	const [recentDistributions, setRecentDistributions] = useState<IDistribution[]>([]);
+	const [orderSummary, setOrderSummary] = useState<IOrderSummary | null>(null);
+	const [recentOrders, setRecentOrders] = useState<IOrder[]>([]);
+	const [selectedHoldingId, setSelectedHoldingId] = useState<string | null>(null);
+
+	const { rows, isLoading, refreshHoldings } = useOwnershipHoldings();
+
+	useEffect(() => {
+		const handler = () => refreshHoldings();
+
+		onHoldingsUpdated(handler);
+
+		return () => {
+			offHoldingsUpdated(handler);
+		};
+	}, [refreshHoldings]);
+
+	useEffect(() => {
+		const loadDistributionData = async () => {
+			try {
+				const [summary, records] = await Promise.all([
+					distributionService.getMySummary(),
+					distributionService.getMyDistributions(),
+				]);
+
+				setDistributionSummary(summary || null);
+				setRecentDistributions(
+					Array.isArray(records) ? records.slice(0, 5) : [],
+				);
+			} catch (error) {
+				console.error('Failed to load distribution summary', error);
+				setDistributionSummary(null);
+				setRecentDistributions([]);
+			}
+		};
+
+		void loadDistributionData();
+	}, []);
+
+	useEffect(() => {
+		const loadOrderData = async () => {
+			try {
+				const summary = await orderService.getMySummary();
+				setOrderSummary(summary || null);
+				setRecentOrders(Array.isArray(summary?.recent) ? summary.recent.slice(0, 5) : []);
+			} catch (error) {
+				console.error('Failed to load order summary', error);
+				setOrderSummary(null);
+				setRecentOrders([]);
+			}
+		};
+
+		void loadOrderData();
+	}, []);
+
+	const holdings = useMemo<InvestorHolding[]>(() => {
+		return rows.map((row, index) => {
+			const amountHeld = Number(row.totalTokens || 0);
+			const projectName = row.projectName || `Project ${row.projectId}`;
+			const tokenPrice = Number(row.tokenPrice || 0);
+			const totalValue = Number(row.totalValue || 0);
+			const estimatedValue =
+				totalValue > 0 ? totalValue : tokenPrice > 0 ? amountHeld * tokenPrice : null;
+
+			return {
+				id: `${row.projectId}-${row.seriesId}-${row.tokenSymbol}-${index}`,
+				projectId: Number(row.projectId),
+				name: projectName,
+				status: 'Live',
+				tokenSymbol: row.tokenSymbol || 'TOKEN',
+				assetCode: row.assetCode || row.tokenSymbol || 'TOKEN',
+				assetIssuer: row.assetIssuer || row.issuer || null,
+				projectStatus: row.projectStatus || row.status || 'live',
+				custodyType: row.custodyType,
+				amountHeld,
+				estimatedValue,
+				custodyLabel:
+					row.custodyType === 'self_custody'
+						? 'Investor wallet'
+						: 'RegenX custody',
+				thumbnailUrl: getHoldingThumbnail(projectName),
+			};
+		});
+	}, [rows]);
+
+	useEffect(() => {
+		if (!holdings.length) {
+			setSelectedHoldingId(null);
+			return;
+		}
+
+		setSelectedHoldingId((current) =>
+			current && holdings.some((holding) => holding.id === current)
+				? current
+				: holdings[0].id,
+		);
+	}, [holdings]);
+
+	const totalPortfolioBasis = useMemo(() => {
+		const pricedTotal = holdings.reduce(
+			(sum, holding) => sum + Math.max(Number(holding.estimatedValue || 0), 0),
+			0,
+		);
+
+		if (pricedTotal > 0) return pricedTotal;
+		if (holdings.length === 1) return 1;
+		return 0;
+	}, [holdings]);
+
+	const selectedHolding = useMemo(
+		() => holdings.find((holding) => holding.id === selectedHoldingId) ?? holdings[0] ?? null,
+		[holdings, selectedHoldingId],
+	);
+
+	const selectedAllocationPercent = useMemo(() => {
+		if (!selectedHolding) return null;
+		if (holdings.length === 1) return 100;
+		if (totalPortfolioBasis <= 0) return null;
+
+		const selectedValue = Math.max(Number(selectedHolding.estimatedValue || 0), 0);
+		if (selectedValue <= 0) return null;
+
+		return Math.max(0, Math.min(100, (selectedValue / totalPortfolioBasis) * 100));
+	}, [holdings.length, selectedHolding, totalPortfolioBasis]);
+
+	const allocationRing = useMemo(() => {
+		const radius = 54;
+		const circumference = 2 * Math.PI * radius;
+		const safePercent = Math.max(0, Math.min(100, selectedAllocationPercent ?? 0));
+
+		return {
+			radius,
+			circumference,
+			offset: circumference - (safePercent / 100) * circumference,
+			percentLabel: `${Math.round(safePercent)}%`,
+		};
+	}, [selectedAllocationPercent]);
+
+	const incomeSection = useMemo(() => {
+		const lastDistribution = distributionSummary?.lastDistribution;
+
+		return {
+			totalIncomeReceived: distributionSummary?.totalIncomeReceived ?? 0,
+			lastDistribution,
+			nextExpectedDistributionDate:
+				distributionSummary?.nextExpectedDistributionDate ?? null,
+			estimatedAnnualYield: distributionSummary?.currentYieldEstimate ?? null,
+		};
+	}, [distributionSummary]);
+
+	const displayName = user?.fullName || 'Investor';
+
+	return (
+		<div
+			className="theme-page-shell min-h-full w-full px-4 py-4"
+			data-test="investor-dashboard"
+		>
+			<div className="max-w-[1220px]">
+				<div className="theme-border mb-4 flex items-start justify-between border-b pb-4">
+					<div>
+						<div className="theme-eyebrow inline-flex rounded-[8px] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em]">
+							Investor Portal
+						</div>
+
+						<h1 className="theme-heading mt-3 text-[34px] font-semibold tracking-[-0.03em]">
+							{getGreeting()}, {displayName}
+						</h1>
+
+						<p className="theme-text-secondary mt-2 text-[15px] leading-[1.4]">
+							Track your capital, custody positions, and live holdings.
+						</p>
+					</div>
+
+						<div className="flex items-center gap-3">
+						<ThemeToggle />
+						<div className="theme-input flex h-[46px] w-[286px] items-center gap-2 rounded-[12px] border px-4 shadow-[var(--shadow-soft)]">
+							<Search className="theme-text-muted h-4 w-4" />
+							<input
+								type="text"
+								placeholder="Search assets..."
+								className="theme-text w-full bg-transparent text-[14px] outline-none placeholder:text-[var(--text-muted)]"
+							/>
+						</div>
+
+						<button
+							type="button"
+							className="theme-icon-button flex h-[46px] w-[46px] items-center justify-center rounded-[12px] border"
+						>
+							<Bell className="h-4 w-4" />
+						</button>
+					</div>
+				</div>
+
+				<div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+					<InvestorKpiCard
+						title="Total Portfolio Value"
+						value={money(distributionSummary?.portfolioEstimatedValue ?? null)}
+						subtitle="Estimated from current project token prices"
+						accent="neutral"
+					/>
+					<InvestorKpiCard
+						title="Total Income Received"
+						value={money(distributionSummary?.totalIncomeReceived ?? 0)}
+						subtitle="Net paid distributions across your holdings"
+						accent="neutral"
+					/>
+					<InvestorKpiCard
+						title="Pending Distributions"
+						value={money(distributionSummary?.pendingIncome ?? 0)}
+						subtitle="Scheduled and pending income not yet settled"
+						accent="neutral"
+					/>
+					<InvestorKpiCard
+						title="Average Yield"
+						value={percent(
+							distributionSummary?.averageYieldAcrossHoldings ?? null,
+						)}
+						subtitle="Estimated using trailing income over settled invested capital"
+						accent="pink"
+					/>
+				</div>
+
+				<div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-[1.05fr_0.55fr]">
+					<div className="theme-dashboard-hero overflow-hidden rounded-[18px] border px-5 py-5 shadow-[0_6px_16px_rgba(47,128,237,0.14)]">
+						<div className="grid grid-cols-1 gap-4">
+							<div>
+								<div className="text-[12px] font-semibold uppercase tracking-[0.14em] text-[#DCEEFF]">
+									Portfolio Overview
+								</div>
+
+								<div className="mt-2 max-w-[520px] text-[34px] font-semibold leading-[1.02] tracking-[-0.03em]">
+									Track settled positions and portfolio activity in one place
+								</div>
+
+								<div className="mt-3 max-w-[540px] text-[15px] leading-[1.55] text-[#EAF5FF]">
+									Review your live holdings, stay on top of distribution
+									activity, and move quickly between opportunities and your
+									portfolio.
+								</div>
+
+								<div className="mt-5 flex flex-wrap gap-3">
+									<button
+										type="button"
+										onClick={() => navigate('/opportunities')}
+										className="rounded-[14px] bg-white px-5 py-3 text-[13px] font-semibold uppercase tracking-[0.08em] text-[#1E4E9C] shadow-[0_8px_18px_rgba(255,255,255,0.14)]"
+									>
+										Browse Opportunities
+									</button>
+
+									<button
+										type="button"
+										onClick={() => navigate('/portfolio')}
+										className="rounded-[14px] border border-white/25 bg-white/10 px-5 py-3 text-[13px] font-semibold uppercase tracking-[0.08em] text-white backdrop-blur-sm"
+									>
+										View Portfolio
+									</button>
+								</div>
+							</div>
+						</div>
+					</div>
+
+					<div className="space-y-3">
+						<div className="rounded-[18px] border border-[#E7ECF4] bg-white p-4 shadow-[0_2px_8px_rgba(16,24,40,0.03)]">
+							<div className="mb-3 flex items-center justify-between">
+								<h2 className="text-[18px] font-semibold text-[#163F74]">
+									Selected Allocation
+								</h2>
+							</div>
+							<p className="mb-3 text-[13px] text-[#66748E]">
+								Click an active investment to view its share of your portfolio.
+							</p>
+
+							{selectedHolding ? (
+								<div className="rounded-[14px] border border-[#E7ECF4] bg-[#FAFBFD] p-5">
+									<div className="flex flex-col items-center gap-5">
+										<div className="relative flex h-[170px] w-[170px] items-center justify-center">
+											<svg
+												width="170"
+												height="170"
+												viewBox="0 0 170 170"
+												className="-rotate-90"
+											>
+												<circle
+													cx="85"
+													cy="85"
+													r={allocationRing.radius}
+													fill="none"
+													stroke="#D8E5FA"
+													strokeWidth="14"
+												/>
+												<circle
+													cx="85"
+													cy="85"
+													r={allocationRing.radius}
+													fill="none"
+													stroke="#6B9BF0"
+													strokeWidth="14"
+													strokeLinecap="round"
+													strokeDasharray={allocationRing.circumference}
+													strokeDashoffset={allocationRing.offset}
+												/>
+											</svg>
+											<div className="absolute inset-0 flex flex-col items-center justify-center">
+												<div className="text-[34px] font-semibold tracking-[-0.03em] text-[#163F74]">
+													{selectedAllocationPercent == null
+														? '—'
+														: allocationRing.percentLabel}
+												</div>
+												<div className="mt-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8B98AF]">
+													Allocation
+												</div>
+											</div>
+										</div>
+
+										<div className="w-full rounded-[12px] bg-white px-4 py-4 text-center shadow-[0_1px_4px_rgba(16,24,40,0.03)]">
+											<div className="text-[15px] font-semibold text-[#1B2F56]">
+												{selectedHolding.name}
+											</div>
+											<div className="mt-1 text-[13px] text-[#66748E]">
+												{selectedAllocationPercent == null
+													? holdings.length === 1
+														? 'This is your only active investment.'
+														: 'Allocation will appear once priced value is available.'
+													: selectedHolding.estimatedValue != null
+													? `${money(selectedHolding.estimatedValue)} of tracked portfolio value`
+													: 'This position currently represents your full active allocation.'}
+											</div>
+										</div>
+									</div>
+								</div>
+							) : (
+								<div className="rounded-[14px] border border-dashed border-[#D9E3F0] bg-[#FAFBFD] px-4 py-6 text-sm text-[#66748E]">
+									Select an investment to review its portfolio allocation.
+								</div>
+							)}
+						</div>
+
+						<div className="rounded-[18px] border border-[#E7ECF4] bg-white p-4 shadow-[0_2px_8px_rgba(16,24,40,0.03)]">
+							<h2 className="mb-3 text-[18px] font-semibold text-[#163F74]">
+								Recent Distributions
+							</h2>
+
+							<div className="space-y-4">
+								{recentDistributions.map((item) => (
+									<div
+										key={`${item.id}-${item.createdAt}`}
+										className="flex items-start gap-3"
+									>
+										<span className="mt-1.5 h-2.5 w-2.5 rounded-full bg-[#1D4FA3]" />
+										<div>
+											<div className="text-[14px] font-medium text-[#1B2F56]">
+												{item.projectName || `Project ${item.projectId}`}
+											</div>
+											<div className="mt-0.5 text-[11px] uppercase tracking-[0.08em] text-[#8B98AF]">
+												{formatDate(item.distributionDate)} • {item.status}
+											</div>
+											<div className="mt-1 text-[13px] font-semibold text-[#1B2F56]">
+												{money(item.netAmount, item.currency)}
+											</div>
+										</div>
+									</div>
+								))}
+
+								{recentDistributions.length === 0 && (
+									<div className="text-[14px] text-[#66748E]">
+										No recent distributions recorded yet.
+									</div>
+								)}
+							</div>
+						</div>
+					</div>
+				</div>
+
+				<div className="mt-3 theme-surface rounded-[18px] border p-5 shadow-[var(--shadow-soft)]">
+					<div className="flex items-center justify-between gap-3">
+						<div>
+							<h2 className="theme-heading text-[18px] font-semibold">
+								Income & Yield
+							</h2>
+							<p className="theme-text-secondary mt-1 text-[13px]">
+								Estimated yield is based on trailing income over settled
+								invested capital.
+							</p>
+						</div>
+						<button
+							type="button"
+							onClick={() => navigate('/distributions')}
+							className="theme-button-secondary rounded-[12px] border px-4 py-2.5 text-[13px] font-semibold uppercase tracking-[0.08em]"
+						>
+							View All
+						</button>
+					</div>
+
+					<div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+						<SidePanelItem
+							title="Total income received"
+							subtitle="Net paid distributions across all holdings"
+							value={money(incomeSection.totalIncomeReceived)}
+							barClass="bg-[#2F80ED]"
+						/>
+						<SidePanelItem
+							title="Last distribution"
+							subtitle={
+								incomeSection.lastDistribution?.projectName ||
+								'No paid distributions yet'
+							}
+							value={incomeSection.lastDistribution
+								? money(
+										incomeSection.lastDistribution.netAmount,
+										incomeSection.lastDistribution.currency,
+								  )
+								: '—'}
+							barClass="bg-[#2F80ED]"
+						/>
+						<SidePanelItem
+							title="Next expected"
+							subtitle="Earliest scheduled or pending distribution date"
+							value={formatDate(incomeSection.nextExpectedDistributionDate, 'TBD')}
+							barClass="bg-[#2F80ED]"
+						/>
+						<SidePanelItem
+							title="Estimated annual yield"
+							subtitle="Portfolio-level estimate from settled income"
+							value={percent(incomeSection.estimatedAnnualYield)}
+							barClass="bg-[#2F80ED]"
+						/>
+					</div>
+				</div>
+
+				<div className="mt-3 rounded-[18px] border border-[#E7ECF4] bg-white p-5 shadow-[0_2px_8px_rgba(16,24,40,0.03)]">
+					<div className="flex items-center justify-between gap-3">
+						<div>
+							<h2 className="text-[18px] font-semibold text-[#163F74]">
+								Recent Order Activity
+							</h2>
+							<p className="mt-1 text-[13px] text-[#66748E]">
+								Track pending, settling, completed, and failed investment orders
+								after you click Invest.
+							</p>
+						</div>
+						<button
+							type="button"
+							onClick={() => navigate('/orders')}
+							className="rounded-[12px] border border-[#D9E2EF] px-4 py-2.5 text-[13px] font-semibold uppercase tracking-[0.08em] text-[#163F74]"
+						>
+							View Orders
+						</button>
+					</div>
+
+					<div className="mt-4 grid grid-cols-2 gap-3 xl:grid-cols-4">
+						<OrderBadge
+							label="Pending"
+							value={Number(orderSummary?.pendingCount ?? 0)}
+						/>
+						<OrderBadge
+							label="Settling"
+							value={Number(orderSummary?.settlingCount ?? 0)}
+						/>
+						<OrderBadge
+							label="Completed"
+							value={Number(orderSummary?.completedCount ?? 0)}
+						/>
+						<OrderBadge
+							label="Failed"
+							value={Number(orderSummary?.failedCount ?? 0)}
+						/>
+					</div>
+
+					<div className="mt-5">
+						{recentOrders.length === 0 ? (
+							<div className="rounded-[14px] border border-dashed border-[#D9E3F0] bg-[#FAFBFD] px-4 py-6 text-sm text-[#66748E]">
+								No order activity recorded yet.
+							</div>
+						) : (
+							<div className="overflow-x-auto">
+								<table className="min-w-full border-separate border-spacing-y-3">
+									<thead>
+										<tr className="text-left text-sm text-[#8B98AF]">
+											<th className="pb-2 font-medium uppercase tracking-[0.08em]">
+												Project
+											</th>
+											<th className="pb-2 font-medium uppercase tracking-[0.08em]">
+												Type
+											</th>
+											<th className="pb-2 font-medium uppercase tracking-[0.08em]">
+												Amount
+											</th>
+											<th className="pb-2 font-medium uppercase tracking-[0.08em]">
+												Status
+											</th>
+											<th className="pb-2 font-medium uppercase tracking-[0.08em]">
+												Last Updated
+											</th>
+										</tr>
+									</thead>
+									<tbody>
+										{recentOrders.map((order) => (
+											<tr
+												key={order.id}
+												className="rounded-[18px] border border-[#E7ECF4] bg-[#F9FBFE] text-sm text-[#1B2F56]"
+											>
+												<td className="rounded-l-[18px] px-4 py-4 font-semibold">
+													{order.projectName}
+												</td>
+												<td className="px-4 py-4">{order.orderType}</td>
+												<td className="px-4 py-4 font-semibold">
+													{money(order.currencyAmount)}
+												</td>
+												<td className="px-4 py-4">
+													<OrderStatusPill status={order.status} />
+												</td>
+												<td className="rounded-r-[18px] px-4 py-4 text-[#66748E]">
+													{new Date(order.updatedAt).toLocaleString()}
+												</td>
+											</tr>
+										))}
+									</tbody>
+								</table>
+							</div>
+						)}
+					</div>
+				</div>
+
+				<div className="mt-4">
+					<div className="mb-3 flex items-center justify-between">
+						<h2 className="theme-heading text-[18px] font-semibold">
+							My Active Investments
+						</h2>
+
+						<div className="flex items-center gap-2">
+							<button
+								type="button"
+								className="theme-button-secondary inline-flex items-center gap-2 rounded-[12px] border px-4 py-2.5 text-[13px] font-semibold uppercase tracking-[0.08em] shadow-[var(--shadow-soft)]"
+							>
+								<Filter className="h-3.5 w-3.5" />
+								Filter
+							</button>
+
+							<button
+								type="button"
+								onClick={() => navigate('/portfolio')}
+								className="rounded-[14px] bg-[#184F9E] px-5 py-2.5 text-[13px] font-semibold uppercase tracking-[0.08em] text-white shadow-[0_8px_18px_rgba(47,128,237,0.14)]"
+							>
+								Portfolio
+							</button>
+						</div>
+					</div>
+
+					{isLoading ? (
+						<div className="rounded-[18px] border border-[#E7ECF4] bg-white px-5 py-8 text-sm text-[#66748E] shadow-[0_2px_8px_rgba(16,24,40,0.03)]">
+							Loading holdings...
+						</div>
+					) : holdings.length === 0 ? (
+						<div className="rounded-[18px] border border-[#E7ECF4] bg-white px-5 py-8 text-sm text-[#66748E] shadow-[0_2px_8px_rgba(16,24,40,0.03)]">
+							No live holdings yet. Browse opportunities to make your first
+							allocation.
+						</div>
+					) : (
+						<div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+							{holdings.map((holding) => (
+								<InvestmentCard
+									key={holding.id}
+									holding={holding}
+									isSelected={holding.id === selectedHolding?.id}
+									onSelect={() => setSelectedHoldingId(holding.id)}
+									onView={() => navigate('/portfolio')}
+								/>
+							))}
+						</div>
+					)}
+				</div>
+			</div>
+		</div>
+	);
+}

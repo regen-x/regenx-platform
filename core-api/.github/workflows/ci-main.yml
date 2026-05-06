@@ -1,0 +1,124 @@
+name: CI Workflow
+
+on:
+  push:
+    branches: ['main', 'staging']
+  pull_request:
+    branches: ['*']
+
+env:
+  DB_HOST: localhost
+  DB_PORT: 3306
+  DB_USERNAME: root
+  DB_PASSWORD: secret
+  DB_NAME: mysql
+  PORT: 3000
+  FRONTEND_URL: http://localhost:4200
+  BASE_APP_URL: http://localhost:3000/api/v1
+  SONAR_SERVER_URL: ${{ secrets.SONAR_HOST_URL }}
+  SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+  AUTH0_DOMAIN: '${{ secrets.AUTH0_DOMAIN }}'
+  AUTH0_CLIENT_ID: '${{ secrets.AUTH0_CLIENT_ID }}'
+  AUTH0_CLIENT_SECRET: '${{ secrets.AUTH0_CLIENT_SECRET }}'
+  AUTH0_AUDIENCE: 'test'
+  JWT_PROVIDER_PREFIX: 'test'
+  SOROBAN_CONTRACT_ADDRESS: 'CTESTCONTRACTADDRESS'
+  STELLAR_SERVER_URL: ${{ secrets.STELLAR_SERVER_URL }}
+  STELLAR_NETWORK_PASSPHRASE: ${{ secrets.STELLAR_NETWORK_PASSPHRASE }}
+  STELLAR_ISSUER_PUBLIC_KEY: ${{ secrets.STELLAR_ISSUER_PUBLIC_KEY }}
+  STELLAR_ISSUER_SECRET_KEY: ${{ secrets.STELLAR_ISSUER_SECRET_KEY }}
+  STELLAR_DISTRIBUTOR_PUBLIC_KEY: ${{ secrets.STELLAR_DISTRIBUTOR_PUBLIC_KEY }}
+  STELLAR_DISTRIBUTOR_SECRET_KEY: ${{ secrets.STELLAR_DISTRIBUTOR_SECRET_KEY }}
+  SOROBAN_SERVER_URL: ${{ secrets.SOROBAN_SERVER_URL }}
+  STELLAR_LOCAL_URL: ${{ secrets.STELLAR_LOCAL_URL }}
+  STELLAR_LOCAL_NETWORK_PASSPHRASE: ${{ secrets.STELLAR_LOCAL_NETWORK_PASSPHRASE }}
+  SOROBAN_LOCAL_SERVER_URL: ${{ secrets.SOROBAN_LOCAL_SERVER_URL }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [18.x]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: NPM or Yarn install with caching
+        uses: bahmutov/npm-install@v1.6.0
+
+      - name: Start Stellar service
+        run: |
+          docker run -d \
+            --name stellar \
+            -p 8000:8000 \
+            stellar/quickstart:soroban-dev \
+            --local --enable-soroban-rpc
+
+      - name: Wait for Stellar to be ready
+        run: |
+          echo "Waiting for Stellar to start..."
+          for i in {1..30}; do
+            if nc -z localhost 8000; then
+              echo "Stellar is up!"
+              break
+            fi
+            echo "Waiting for Stellar..."
+            sleep 2
+          done
+
+      - name: Lint & Format
+        run: |
+          npm run lint
+          npm run format
+
+      - name: Build
+        run: npm run build
+
+      - name: Run Tests
+        run: npm run test:cov
+
+      # - name: Report LCOV
+      #   uses: zgosalvez/github-actions-report-lcov@v1
+      #   with:
+      #     github-token: ${{ secrets.GITHUB_TOKEN }}
+      #     coverage-files: ./coverage/lcov.info
+
+      - name: Store coverage folder as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage
+
+  sonarqube:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download coverage artifact
+        uses: actions/download-artifact@v4.0.0
+        with:
+          name: coverage
+          path: coverage
+
+      - name: SonarQube Scan
+        uses: sonarsource/sonarqube-scan-action@master
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+
+      - name: SonarQube Quality Gate check
+        id: sonarqube-quality-gate-check
+        uses: sonarsource/sonarqube-quality-gate-action@master
+        timeout-minutes: 5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}

@@ -1,0 +1,10 @@
+entity: TransactionEntity
+items:
+  transaction0:
+    uuid: '28a129c4-7526-449e-98d0-4410333b446a'
+    amount: 1000
+    type: 'direct_purchase'
+    buyer: '@investor'
+    project: '@project0'
+    createdAt: '2024-01-01'
+    updatedAt: '2024-01-01'

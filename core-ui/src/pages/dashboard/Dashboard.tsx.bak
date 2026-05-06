@@ -1,0 +1,655 @@
+import { useEffect } from 'react';
+import { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+
+import DashboardClientsCard from '@/components/dashboard/(wealth-manager)/clients/card';
+import ThemeToggle from '@/components/ui/ThemeToggle';
+import { UserType } from '@/constants/enum/user-type.enum';
+import InvestorDashboard from '@/pages/dashboard/InvestorDashboard';
+import { projectService } from '@/services/project.service';
+import { useUserStore } from '@/store/user.store';
+
+type ClimateProject = {
+	id: string;
+	name: string;
+	status: string;
+	backendStatus:
+		| 'draft'
+		| 'under_review'
+		| 'changes_requested'
+		| 'approved'
+		| 'issued'
+		| 'live'
+		| 'locked';
+	fundingGoal: number;
+	capitalRaised: number;
+	completion: string;
+	interest: string;
+};
+
+const getPct = (goal: number, raised: number) =>
+	goal > 0 ? Math.max(0, Math.min(100, Math.round((raised / goal) * 100))) : 0;
+
+function KpiCard({
+	title,
+	value,
+	subtitle,
+	accent = 'neutral',
+}: {
+	title: string;
+	value: string | number;
+	subtitle: string;
+	accent?: 'blue' | 'pink' | 'neutral';
+}) {
+	const styles =
+		accent === 'pink'
+			? 'theme-surface-muted'
+			: accent === 'blue'
+			? 'theme-surface-muted'
+			: 'theme-surface';
+
+	const valueColor = accent === 'pink' ? 'theme-text-secondary' : 'theme-heading';
+
+	return (
+		<div
+			className={`rounded-[12px] border px-5 py-4 shadow-[var(--shadow-soft)] ${styles}`}
+		>
+			<div className="theme-text-secondary text-[13px] font-semibold">{title}</div>
+			<div
+				className={`mt-2 text-[21px] font-semibold leading-none ${valueColor}`}
+			>
+				{value}
+			</div>
+			<div className="theme-text-secondary mt-2 whitespace-pre-line text-[13px] leading-[1.4]">
+				{subtitle}
+			</div>
+		</div>
+	);
+}
+
+function StatusPill({ status }: { status: ClimateProject['status'] }) {
+	if (status === 'Under Review') {
+		return (
+			<span className="rounded-full border border-[#F0C8D8] bg-[#FFF2F8] px-3 py-1 text-[10px] font-medium text-[#B34D79]">
+				Under Review
+			</span>
+		);
+	}
+
+	if (status === 'Approved') {
+		return (
+			<span className="rounded-full border border-[#DCE7F5] bg-[#F8FBFF] px-3 py-1 text-[10px] font-medium text-[#2C67B1]">
+				Approved
+			</span>
+		);
+	}
+
+	if (status === 'Issued') {
+		return (
+			<span className="rounded-full border border-[#D6F5E8] bg-[#F2FFF8] px-3 py-1 text-[10px] font-medium text-[#0F8A5F]">
+				Issued
+			</span>
+		);
+	}
+
+	if (status === 'Live') {
+		return (
+			<span className="rounded-full border border-[#D1FAE5] bg-[#ECFDF5] px-3 py-1 text-[10px] font-medium text-[#047857]">
+				Live
+			</span>
+		);
+	}
+
+	if (status === 'Locked') {
+		return (
+			<span className="rounded-full border border-[#E5E7EB] bg-[#F9FAFB] px-3 py-1 text-[10px] font-medium text-[#4B5563]">
+				Locked
+			</span>
+		);
+	}
+
+	if (status === 'Changes Requested') {
+		return (
+			<span className="rounded-full border border-[#FBCFE8] bg-[#FDF2F8] px-3 py-1 text-[10px] font-medium text-[#BE185D]">
+				Changes Requested
+			</span>
+		);
+	}
+
+	return (
+		<span className="rounded-full border border-[#CAE1FB] bg-[#EFF7FF] px-3 py-1 text-[10px] font-medium text-[#4C86CD]">
+			In Preparation
+		</span>
+	);
+}
+
+function ProjectRow({
+	project,
+	selected,
+	onSelect,
+	onOpen,
+	onDelete,
+	isDeleting,
+}: {
+	project: ClimateProject;
+	selected: boolean;
+	onSelect: () => void;
+	onOpen: () => void;
+	onDelete: () => void;
+	isDeleting: boolean;
+}) {
+	const readinessWidth = getPct(project.fundingGoal, project.capitalRaised);
+	const isDraft = project.backendStatus === 'draft';
+
+	return (
+		<div
+			className={`w-full rounded-[12px] border text-left transition ${
+				selected
+					? 'theme-surface shadow-[0_2px_8px_rgba(47,128,237,0.05)]'
+					: 'theme-surface shadow-[var(--shadow-soft)]'
+			}`}
+		>
+			<button
+				type="button"
+				onClick={onSelect}
+				className="w-full px-4 py-4 text-left"
+			>
+				<div className="flex items-start justify-between gap-3">
+					<div className="min-w-0">
+						<div className="flex flex-wrap items-center gap-2.5">
+							<h3 className="theme-heading text-[15px] font-semibold">
+								{project.name}
+							</h3>
+							<StatusPill status={project.status} />
+						</div>
+					</div>
+					<div className="theme-heading text-[15px] font-semibold">
+						${project.fundingGoal.toLocaleString()}
+					</div>
+				</div>
+
+				<div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+					<div>
+						<div className="theme-text-muted text-[10px] font-semibold uppercase tracking-[0.12em]">
+							Target
+						</div>
+						<div className="theme-heading mt-1 text-[15px] font-semibold">
+							${project.fundingGoal.toLocaleString()}
+						</div>
+					</div>
+
+					<div>
+						<div className="theme-text-muted text-[10px] font-semibold uppercase tracking-[0.12em]">
+							Completion
+						</div>
+						<div className="theme-heading mt-1 text-[15px] font-semibold">
+							{project.completion}
+						</div>
+					</div>
+
+					<div>
+						<div className="theme-text-secondary text-right text-[12px] font-medium">
+							Funding Readiness
+						</div>
+						<div className="mt-2 h-[6px] rounded-full bg-[var(--border-color)]">
+							<div
+								className="h-[6px] rounded-full bg-[#69B7F6]"
+								style={{ width: `${readinessWidth}%` }}
+							/>
+						</div>
+					</div>
+				</div>
+
+				<div className="theme-border mt-4 border-t pt-3">
+					{project.id === '1' ? (
+						<>
+							<div className="theme-text-secondary text-[13px]">
+								{project.interest}{' '}
+								<span className="font-semibold text-[#C04F7E]">
+									+ 3 investors viewing
+								</span>
+							</div>
+							<div className="theme-text-secondary mt-1.5 text-[13px]">
+								Required financial model to unlock funding
+							</div>
+						</>
+					) : (
+						<div className="theme-text-secondary text-[13px]">{project.interest}</div>
+					)}
+				</div>
+			</button>
+
+			<div className="px-4 pb-4">
+				<div className="mt-3 flex justify-end gap-2">
+					{isDraft ? (
+						<button
+							type="button"
+							onClick={onDelete}
+							disabled={isDeleting}
+							className="theme-button-secondary rounded-[10px] border px-4 py-2 text-[13px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-60"
+						>
+							{isDeleting ? 'Deleting...' : 'Delete Draft'}
+						</button>
+					) : null}
+					<button
+						type="button"
+						onClick={onOpen}
+						className="theme-button-primary rounded-[10px] px-4 py-2 text-[13px] font-semibold shadow-[0_6px_14px_rgba(47,128,237,0.14)]"
+					>
+						Open Project
+					</button>
+				</div>
+			</div>
+		</div>
+	);
+}
+
+function OverviewItem({
+	title,
+	subtitle,
+	count,
+	value,
+	barClass,
+}: {
+	title: string;
+	subtitle: string;
+	count: number;
+	value: number;
+	barClass: string;
+}) {
+	return (
+		<div className="theme-surface rounded-[12px] border px-4 py-3 shadow-[var(--shadow-soft)]">
+			<div className="flex items-start justify-between gap-3">
+				<div className="flex items-start gap-2.5">
+					<div className="theme-surface-muted theme-text-muted mt-0.5 flex h-4 w-4 items-center justify-center rounded-full text-[9px]">
+						○
+					</div>
+					<div>
+						<div className="theme-heading text-[14px] font-semibold">
+							{title}
+						</div>
+						<div className="theme-text-secondary mt-0.5 text-[12px]">{subtitle}</div>
+					</div>
+				</div>
+				<div className="theme-heading text-[14px] font-semibold">{count}</div>
+			</div>
+			<div className="mt-3 h-[6px] rounded-full bg-[var(--border-color)]">
+				<div
+					className={`h-[6px] rounded-full ${barClass}`}
+					style={{ width: `${value}%` }}
+				/>
+			</div>
+		</div>
+	);
+}
+
+function getGreeting() {
+	const hour = new Date().getHours();
+
+	if (hour < 12) return 'Good morning';
+	if (hour < 18) return 'Good afternoon';
+	return 'Good evening';
+}
+
+export default function Dashboard() {
+	const navigate = useNavigate();
+	const { user } = useUserStore();
+	const [selectedId, setSelectedId] = useState<string>('');
+	const [climateProjects, setClimateProjects] = useState<ClimateProject[]>([]);
+	const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
+
+	useEffect(() => {
+		const load = async () => {
+			try {
+				const res = await projectService.getMyProjects();
+				const mapped = (res || []).map((p: any) => ({
+					id: String(p.id),
+					name: p.name || 'Untitled Project',
+					status:
+						p.status === 'under_review'
+							? 'Under Review'
+							: p.status === 'changes_requested'
+							? 'Changes Requested'
+							: p.status === 'approved'
+							? 'Approved'
+							: p.status === 'issued'
+							? 'Issued'
+							: p.status === 'live'
+							? 'Live'
+							: p.status === 'locked'
+							? 'Locked'
+							: 'In Preparation',
+					backendStatus: String(p.status || 'draft') as ClimateProject['backendStatus'],
+					fundingGoal: Number(p.fundingGoal || 0),
+					capitalRaised: Number(p.fundedSoFar || 0),
+					completion: `${p.completedCount || 0}/${
+						p.totalSections || 0
+					} sections`,
+					interest:
+						p.status === 'under_review'
+							? 'Awaiting admin review'
+							: p.status === 'changes_requested'
+							? 'Revisions required before resubmission'
+							: p.status === 'approved'
+							? 'Approved and eligible for issuance'
+							: p.status === 'issued'
+							? 'Issued and ready for live activation'
+							: p.status === 'live'
+							? 'Visible to investors'
+							: p.status === 'locked'
+							? 'Locked by admin'
+							: 'Not yet visible to investors',
+				}));
+				setClimateProjects(mapped);
+				if (mapped.length > 0) setSelectedId(mapped[0].id);
+			} catch (e) {
+				console.error(e);
+			}
+		};
+		load();
+	}, []);
+
+	const selectedProject = useMemo(
+		() =>
+			climateProjects.find((project) => project.id === selectedId) ??
+			(climateProjects[0] || { fundingGoal: 0, capitalRaised: 0 }),
+		[selectedId, climateProjects],
+	);
+
+	const selectedPct = getPct(
+		selectedProject.fundingGoal,
+		selectedProject.capitalRaised,
+	);
+	const activeDeals = climateProjects.length;
+	const capitalBeingRaised = climateProjects.reduce(
+		(sum, project) => sum + (Number(project.fundingGoal) || 0),
+		0,
+	);
+	const investorActivity = 0;
+	const fundingReady = climateProjects.filter(
+		(project) => project.backendStatus === 'under_review',
+	).length;
+	const atRisk = 0;
+
+	const inPreparation = climateProjects.filter(
+		(project) => project.status === 'In Preparation',
+	).length;
+	const underReview = climateProjects.filter(
+		(project) => project.backendStatus === 'under_review',
+	).length;
+
+	const handleOpenProject = (projectId: string) => {
+		if (!projectId) return;
+		navigate(`/project-setup?projectId=${projectId}`);
+	};
+
+	const handleDeleteDraft = async (projectId: string) => {
+		const project = climateProjects.find((item) => item.id === projectId);
+		if (!project || project.backendStatus !== 'draft') return;
+
+		const confirmed = window.confirm(
+			`Delete draft "${project.name}"? This cannot be undone.`,
+		);
+		if (!confirmed) return;
+
+		try {
+			setDeletingProjectId(projectId);
+			await projectService.deleteProject(projectId);
+			setClimateProjects((prev) => {
+				const next = prev.filter((item) => item.id !== projectId);
+				setSelectedId((current) => {
+					if (current !== projectId) return current;
+					return next[0]?.id ?? '';
+				});
+				return next;
+			});
+		} catch (error) {
+			console.error('Failed to delete draft project', error);
+			window.alert('Failed to delete draft project. Please try again.');
+		} finally {
+			setDeletingProjectId(null);
+		}
+	};
+
+	return (
+		<div
+			className="theme-page-shell mb-4 flex w-full flex-col gap-y-6"
+			data-test="dashboard"
+		>
+			{user?.type === UserType.CLIMATE_DEVELOPER && (
+				<div className="theme-page-shell min-h-full w-full px-4 py-4">
+					<div className="max-w-[1220px]">
+						<div className="theme-border mb-4 flex items-start justify-between border-b pb-4">
+							<div>
+								<div className="theme-eyebrow inline-flex rounded-[8px] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em]">
+									Climate Developer Portal
+								</div>
+
+								<h1 className="theme-heading mt-3 text-[34px] font-semibold tracking-[-0.03em]">
+									{`${getGreeting()}, ${user?.fullName || 'Investor'}`}
+								</h1>
+
+								<p className="theme-text-secondary mt-2 text-[15px] leading-[1.4]">
+									Track your project's funding status and investor engagement.
+								</p>
+							</div>
+
+							<div className="flex items-center gap-3">
+								<ThemeToggle />
+								<button
+									type="button"
+									onClick={() => navigate('/project-setup')}
+									className="theme-button-primary rounded-[14px] px-5 py-3 text-[14px] font-semibold shadow-[0_8px_18px_rgba(47,128,237,0.14)]"
+								>
+									+ New Project
+								</button>
+							</div>
+						</div>
+
+						<div className="grid grid-cols-1 gap-3 xl:grid-cols-5">
+							<KpiCard
+								title="Active Deals"
+								value={activeDeals}
+								subtitle={`${fundingReady} ready for funding\n${Math.max(
+									activeDeals - fundingReady,
+									0,
+								)} in progress`}
+								accent="blue"
+							/>
+							<KpiCard
+								title="Capital Being Raised"
+								value={`$${capitalBeingRaised.toLocaleString()}`}
+								subtitle={'Total funding goals across\nyour active projects'}
+								accent="pink"
+							/>
+							<KpiCard
+								title="Investor Activity"
+								value={investorActivity}
+								subtitle={'Live investor activity\nnot yet available'}
+								accent="pink"
+							/>
+							<KpiCard
+								title="Funding Ready"
+								value={fundingReady}
+								subtitle={'Projects currently\nunder review'}
+								accent="blue"
+							/>
+							<KpiCard
+								title="At Risk"
+								value={atRisk}
+								subtitle={'Risk detection\nnot yet available'}
+								accent="pink"
+							/>
+						</div>
+
+						<div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-[1.05fr_0.55fr]">
+							<div className="space-y-3">
+								<div className="overflow-hidden rounded-[18px] border border-[#D5E5FA] bg-[linear-gradient(135deg,#1D7AE7_0%,#46A4F4_100%)] px-5 py-5 text-white shadow-[0_6px_16px_rgba(47,128,237,0.14)]">
+									<div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_110px] lg:items-center">
+										<div>
+											<div className="text-[12px] font-semibold uppercase tracking-[0.14em] text-[#DCEEFF]">
+												Capital Raising Score
+											</div>
+											<div className="mt-2 text-[34px] font-semibold leading-[1.02] tracking-[-0.03em]">
+												{selectedPct}% of capital goal raised
+											</div>
+											<div className="mt-2 text-[15px] leading-[1.35] text-[#EAF5FF]">
+												% of your total capital goal successfully raised
+											</div>
+											<div className="mt-3 text-[15px] font-semibold text-white">
+												${selectedProject.capitalRaised.toLocaleString()} of $
+												{selectedProject.fundingGoal.toLocaleString()} total
+												raised
+											</div>
+										</div>
+
+										<div className="flex justify-end">
+											<div className="relative h-[96px] w-[96px] rounded-full border-[10px] border-[rgba(255,255,255,0.35)]">
+												<div
+													className="absolute inset-[-10px] rounded-full"
+													style={{
+														background: `conic-gradient(#FFFFFF 0deg, #FFFFFF ${
+															selectedPct * 3.6
+														}deg, rgba(255,255,255,0.28) ${
+															selectedPct * 3.6
+														}deg, rgba(255,255,255,0.28) 360deg)`,
+														WebkitMask:
+															'radial-gradient(farthest-side, transparent calc(100% - 10px), #000 calc(100% - 10px))',
+														mask: 'radial-gradient(farthest-side, transparent calc(100% - 10px), #000 calc(100% - 10px))',
+													}}
+												/>
+												<div className="absolute inset-0 flex items-center justify-center text-[18px] font-semibold text-white">
+													{selectedPct}%
+												</div>
+											</div>
+										</div>
+									</div>
+								</div>
+
+								<div className="rounded-[18px] border border-[#E7ECF4] bg-white p-4 shadow-[0_2px_8px_rgba(16,24,40,0.03)]">
+									<div className="mb-3">
+										<h2 className="text-[18px] font-semibold text-[#163F74]">
+											Deal Room
+										</h2>
+										<p className="mt-1 text-[13px] leading-[1.35] text-[#61708A]">
+											Manage your active and draft investment deals
+										</p>
+									</div>
+
+									<div className="space-y-3">
+										{climateProjects.length === 0 ? (
+											<div className="rounded-[12px] border border-dashed border-[#D7E6FB] bg-[#FAFCFF] px-4 py-6 text-sm text-[#66748E]">
+												No projects yet
+											</div>
+										) : (
+											climateProjects.map((project) => (
+												<ProjectRow
+													key={project.id}
+													project={project}
+													selected={project.id === selectedId}
+													onSelect={() => setSelectedId(project.id)}
+													onOpen={() => handleOpenProject(project.id)}
+													onDelete={() => handleDeleteDraft(project.id)}
+													isDeleting={deletingProjectId === project.id}
+												/>
+											))
+										)}
+									</div>
+								</div>
+							</div>
+
+							<div className="space-y-3">
+								<div className="rounded-[18px] border border-[#E7ECF4] bg-white p-4 shadow-[0_2px_8px_rgba(16,24,40,0.03)]">
+									<div className="mb-3 flex items-center justify-between">
+										<h2 className="text-[18px] font-semibold text-[#163F74]">
+											Pipeline Overview
+										</h2>
+										<button className="text-[12px] font-medium text-[#5179B5]">
+											View All
+										</button>
+									</div>{' '}
+									<div className="space-y-3">
+										<OverviewItem
+											title="In Preparation"
+											subtitle="Not visible to investors"
+											count={inPreparation}
+											value={
+												activeDeals > 0
+													? Math.round((inPreparation / activeDeals) * 100)
+													: 0
+											}
+											barClass="bg-[#6CB8F6]"
+										/>
+										<OverviewItem
+											title="Under Review"
+											subtitle="Submitted and awaiting review"
+											count={underReview}
+											value={
+												activeDeals > 0
+													? Math.round((underReview / activeDeals) * 100)
+													: 0
+											}
+											barClass="bg-[#9FC5F3]"
+										/>
+										<OverviewItem
+											title="At Risk"
+											subtitle="Risk detection not yet available"
+											count={atRisk}
+											value={0}
+											barClass="bg-[#EEA6CA]"
+										/>
+									</div>
+								</div>
+								<div className="rounded-[18px] border border-[#E7ECF4] bg-white p-4 shadow-[0_2px_8px_rgba(16,24,40,0.03)]">
+									<h2 className="mb-3 text-[18px] font-semibold text-[#163F74]">
+										Project Status Summary
+									</h2>
+
+									<div className="space-y-3">
+										<div className="flex items-center justify-between rounded-[12px] border border-[#E7ECF4] bg-[#FAFCFF] px-4 py-3">
+											<span className="text-[14px] text-[#5F6C86]">
+												Total Projects
+											</span>
+											<span className="text-[16px] font-semibold text-[#163F74]">
+												{activeDeals}
+											</span>
+										</div>
+										<div className="flex items-center justify-between rounded-[12px] border border-[#E7ECF4] bg-[#FAFCFF] px-4 py-3">
+											<span className="text-[14px] text-[#5F6C86]">
+												In Preparation
+											</span>
+											<span className="text-[16px] font-semibold text-[#163F74]">
+												{inPreparation}
+											</span>
+										</div>
+										<div className="flex items-center justify-between rounded-[12px] border border-[#E7ECF4] bg-[#FAFCFF] px-4 py-3">
+											<span className="text-[14px] text-[#5F6C86]">
+												Under Review
+											</span>
+											<span className="text-[16px] font-semibold text-[#163F74]">
+												{underReview}
+											</span>
+										</div>
+										<div className="flex items-center justify-between rounded-[12px] border border-[#E7ECF4] bg-[#FAFCFF] px-4 py-3">
+											<span className="text-[14px] text-[#5F6C86]">
+												Total Funding Goal
+											</span>
+											<span className="text-[16px] font-semibold text-[#163F74]">
+												${capitalBeingRaised.toLocaleString()}
+											</span>
+										</div>
+									</div>
+								</div>
+							</div>
+						</div>
+					</div>
+				</div>
+			)}
+
+			{user?.type === UserType.WEALTH_MANAGER && <DashboardClientsCard />}
+
+			{user?.type !== UserType.CLIMATE_DEVELOPER &&
+				user?.type !== UserType.WEALTH_MANAGER && <InvestorDashboard />}
+		</div>
+	);
+}

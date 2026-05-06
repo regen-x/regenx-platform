@@ -1,0 +1,18 @@
+entity: ProjectEntity
+items:
+  project1:
+    uuid: '28a129c4-7526-449e-98d0-4410333b446b'
+    name: 'Example Project'
+    description: 'This is an example project'
+    location: 'Example Location'
+    fundingGoal: 1000
+    startDate: '2025-12-31 18:47:42.953571'
+    endDate: '2026-12-31 18:47:42.953571'
+    climateImpact: High
+    tokenSymbol: EXMP
+    tokenSupply: 1000000
+    tokenAddress: 'CBYXGQJWVLWOYHFLVTKWV5FGHA3LNYY2JQKM7OAJAUEQFU6LPCSEFVXON'
+    tokenPrice: 1
+    generatesCarbonCredits: true
+    ownerAddress: 'GAUPJCQQ7MKPZ375F7P5O2A5LXBBCQULAIIXA274LNZLTBXWVGZGEJFG'
+    user: '@user1'

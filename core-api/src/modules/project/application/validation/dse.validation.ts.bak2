@@ -1,0 +1,66 @@
+import { BadRequestException } from '@nestjs/common';
+import { DseType } from '../..//domain/dse-type.enum';
+
+type AnyObject = Record<string, any>;
+
+export function normalizeDseType(value?: unknown): DseType {
+	const raw = String(value || '').trim().toLowerCase();
+
+	if (raw.includes('operating')) return DseType.Operating;
+	if (raw.includes('construction')) return DseType.Construction;
+	return DseType.Development;
+}
+
+export function validateDseState(input: {
+	dseType?: unknown;
+	project?: AnyObject;
+	payload?: AnyObject;
+}) {
+	const dseType = normalizeDseType(input.dseType);
+	const project = input.project || {};
+	const payload = input.payload || {};
+
+	const stage = String(project.stage || payload.stage || '').toLowerCase();
+	const revenueModel = project.revenueModel || payload.revenueModel || {};
+	const agreementType = String(revenueModel.agreementType || '').trim();
+	const financialClose =
+		project.financialCloseAchieved ??
+		payload.financialCloseAchieved ??
+		false;
+
+	const gridConnected =
+		project.gridConnected ??
+		payload.gridConnected ??
+		false;
+
+	const isOperatingSignal =
+		gridConnected ||
+		stage.includes('operating') ||
+		stage.includes('live');
+
+	const hasRevenueSignal = Boolean(
+		agreementType ||
+			revenueModel.primaryCounterparty ||
+			revenueModel.paymentFrequency,
+	);
+
+	if (dseType === DseType.Development && hasRevenueSignal && isOperatingSignal) {
+		throw new BadRequestException(
+			'Development projects cannot be marked as operating with active revenue signals.',
+		);
+	}
+
+	if (dseType === DseType.Construction && !financialClose) {
+		throw new BadRequestException(
+			'Construction projects must indicate financial close or committed funding.',
+		);
+	}
+
+	if (dseType === DseType.Operating && !hasRevenueSignal && !isOperatingSignal) {
+		throw new BadRequestException(
+			'Operating projects must include active revenue or operational status signals.',
+		);
+	}
+
+	return dseType;
+}

@@ -1,0 +1,73 @@
+
+  async saveDraft(id: string, payload: any) {
+    const project = await this.getProject(id);
+    if (!project) throw new Error('Project not found');
+
+    if (project.status === 'approved' || project.status === 'locked') {
+      throw new Error('Approved or locked projects cannot be edited');
+    }
+
+    project.name = payload?.projectName ?? payload?.name ?? project.name;
+    project.projectType = payload?.projectType ?? project.projectType;
+    project.dseType = payload?.dseType ?? project.dseType;
+    project.stage = payload?.stage ?? project.stage;
+    project.jurisdiction = payload?.jurisdiction ?? project.jurisdiction;
+
+    project.location =
+      payload?.siteAddress ??
+      payload?.fullAddress ??
+      payload?.location ??
+      project.location;
+
+    project.fundingGoal =
+      payload?.fundingGoal !== undefined && payload?.fundingGoal !== null
+        ? Number(payload.fundingGoal)
+        : project.fundingGoal;
+
+    project.totalProjectCapex =
+      payload?.totalProjectCapex ?? project.totalProjectCapex;
+
+    project.minimumInvestment =
+      payload?.minimumInvestment ?? project.minimumInvestment;
+
+    project.targetIrr = payload?.targetIrr ?? project.targetIrr;
+    project.targetAnnualYield =
+      payload?.targetAnnualYield ?? project.targetAnnualYield;
+
+    project.investmentTermYears =
+      payload?.investmentTermYears ?? project.investmentTermYears;
+
+    project.investmentSummary =
+      payload?.investmentSummary ?? project.investmentSummary;
+
+    project.thumbnailImageUrl =
+      payload?.thumbnailImageUrl ?? project.thumbnailImageUrl;
+
+    project.payloadJson = {
+      ...(project.payloadJson ?? {}),
+      ...payload,
+    };
+
+    project.draftPayload = project.payloadJson;
+
+    if (payload?.workflowStatus) {
+      project.workflowStatusJson = payload.workflowStatus;
+    }
+
+    if (typeof payload?.completedCount === 'number') {
+      project.completedCount = payload.completedCount;
+    }
+
+    if (typeof payload?.totalSections === 'number') {
+      project.totalSections = payload.totalSections;
+    }
+
+    project.lastSavedAt = new Date();
+
+    // ✅ FIX: ensure RPA recalculates on draft save
+    this.applyRpaFields(project, payload);
+    this.applyRpaOutputs(project);
+
+    return this.projectRepo.save(project);
+  }
+

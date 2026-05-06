@@ -1,0 +1,102 @@
+{
+  "numFailedTestSuites": 0,
+  "numFailedTests": 0,
+  "numPassedTestSuites": 1,
+  "numPassedTests": 2,
+  "numPendingTestSuites": 0,
+  "numPendingTests": 0,
+  "numRuntimeErrorTestSuites": 0,
+  "numTodoTests": 0,
+  "numTotalTestSuites": 1,
+  "numTotalTests": 2,
+  "openHandles": [],
+  "snapshot": {
+    "added": 0,
+    "didUpdate": false,
+    "failure": false,
+    "filesAdded": 0,
+    "filesRemoved": 0,
+    "filesRemovedList": [],
+    "filesUnmatched": 0,
+    "filesUpdated": 0,
+    "matched": 0,
+    "total": 0,
+    "unchecked": 0,
+    "uncheckedKeysByFile": [],
+    "unmatched": 0,
+    "updated": 0
+  },
+  "startTime": 1777043014321,
+  "success": true,
+  "testResults": [
+    {
+      "leaks": false,
+      "numFailingTests": 0,
+      "numPassingTests": 2,
+      "numPendingTests": 0,
+      "numTodoTests": 0,
+      "openHandles": [],
+      "perfStats": {
+        "end": 1777043024091,
+        "loadTestEnvironmentEnd": 1777043014831,
+        "loadTestEnvironmentStart": 1777043014748,
+        "runtime": 9259,
+        "setupAfterEnvEnd": 1777043015084,
+        "setupAfterEnvStart": 1777043015084,
+        "setupFilesEnd": 1777043014832,
+        "setupFilesStart": 1777043014832,
+        "slow": true,
+        "start": 1777043014832
+      },
+      "skipped": false,
+      "snapshot": {
+        "added": 0,
+        "fileDeleted": false,
+        "matched": 0,
+        "unchecked": 0,
+        "uncheckedKeys": [],
+        "unmatched": 0,
+        "updated": 0
+      },
+      "testFilePath": "/home/ubuntu/core/core-api/src/modules/custody/__test__/custody.service.spec.ts",
+      "testResults": [
+        {
+          "ancestorTitles": [
+            "institutional custody architecture"
+          ],
+          "duration": 5,
+          "failing": false,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "institutional custody architecture keeps Fireblocks and Zodia integrations fail-closed until real APIs are configured",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 2,
+          "retryReasons": [],
+          "startAt": 1777043024078,
+          "status": "passed",
+          "title": "keeps Fireblocks and Zodia integrations fail-closed until real APIs are configured"
+        },
+        {
+          "ancestorTitles": [
+            "institutional custody architecture"
+          ],
+          "duration": 5,
+          "failing": false,
+          "failureDetails": [],
+          "failureMessages": [],
+          "fullName": "institutional custody architecture updates custody transaction status from a Fireblocks webhook without private key fields",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 3,
+          "retryReasons": [],
+          "startAt": 1777043024084,
+          "status": "passed",
+          "title": "updates custody transaction status from a Fireblocks webhook without private key fields"
+        }
+      ],
+      "failureMessage": null
+    }
+  ],
+  "wasInterrupted": false
+}

@@ -1,0 +1,13 @@
+{
+	"data": {
+		"type": "offer_xdr",
+		"id": "buy-offer-1",
+		"attributes": {
+			"transactionXdr": "AAAAAgAAAABwfNkbkHd7QF6UoV7jzHBJjz8VF2PtDn4ICg/t3u0mXwAAAGQAAAAAAAAAZAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAACwAAAAAAAAAAAAAAAAAAAA==",
+			"type": "buy_offer"
+		}
+	},
+	"links": {
+		"self": "offer/1/buy"
+	}
+}

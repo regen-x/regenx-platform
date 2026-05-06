@@ -1,0 +1,24 @@
+{
+	"data": [
+		{
+			"type": "user",
+			"id": "38c4f729-1e46-4f7f-a099-6116e2cf62e1",
+			"attributes": {
+				"email": "jane@test.com",
+				"externalId": "677bebe5ee75517337128fd",
+				"role": "regular",
+				"createdAt": "2025-01-06T17:42:44.028Z",
+				"updatedAt": "2025-01-06T17:43:04.415Z",
+				"deletedAt": null,
+				"fullName": "Jane Doe",
+				"birthdate": "2025-01-01",
+				"phoneNumber": "+543496522688",
+				"type": "wholesaleInvestor",
+				"walletAddress": "GBRPVMU63WE636GZU5LUWNBX275LO66YFI4PIZ5HTQHYF2VM5AYV7M6V"
+			}
+		}
+	],
+	"links": {
+		"self": "/api/v1/user"
+	}
+}

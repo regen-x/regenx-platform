@@ -1,0 +1,1396 @@
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { In, IsNull, Repository } from 'typeorm';
+
+import { S3StorageService } from '../../../../common/infrastructure/storage/s3.storage.service';
+import { ProjectEntity } from '../../infrastructure/persistence/entities/project.entity';
+import {
+  ProjectFileCategory,
+  ProjectFileEntity,
+  ProjectFilePurpose,
+} from '../../infrastructure/persistence/entities/project-file.entity';
+import { ProjectVersionEntity } from '../../infrastructure/persistence/entities/project-version.entity';
+import { DeveloperProfileEntity } from '../../../developer-profile/infrastructure/persistence/entities/developer-profile.entity';
+import { AssetService } from '../../../asset/application/service/asset.service';
+import { SpvService } from '../../../spv/application/spv.service';
+import { ProjectMapper } from '../mapper/project.mapper';
+import { OwnershipEntity } from '../../../ownership/infrastructure/persistence/entities/ownership.entity';
+import { OwnershipTransactionEntity } from '../../../ownership/infrastructure/persistence/entities/ownership-transaction.entity';
+import { NotificationService } from '../../../notification/application/service/notification.service';
+import { NotificationType } from '../../../notification/infrastructure/persistence/entities/notification.entity';
+import { TransactionEntity } from '../../../transaction/infrastructure/persistence/entities/transaction.entity';
+import { UserEntity } from '../../../iam/user/infrastructure/persistence/entities/user.entity';
+
+type ProjectReviewStatus =
+  | 'draft'
+  | 'under_review'
+  | 'changes_requested'
+  | 'approved'
+  | 'issued'
+  | 'live'
+  | 'locked';
+
+type IssuanceExecutionStatus = 'not_started' | 'pending' | 'completed' | 'failed';
+
+@Injectable()
+export class ProjectService {
+  constructor(
+    @InjectRepository(ProjectEntity)
+    private readonly projectRepo: Repository<ProjectEntity>,
+
+    @InjectRepository(ProjectFileEntity)
+    private readonly projectFileRepo: Repository<ProjectFileEntity>,
+
+    @InjectRepository(ProjectVersionEntity)
+    private readonly versionRepo: Repository<ProjectVersionEntity>,
+
+    @InjectRepository(DeveloperProfileEntity)
+    private readonly developerProfileRepo: Repository<DeveloperProfileEntity>,
+
+    @InjectRepository(OwnershipEntity)
+    private readonly ownershipRepo: Repository<OwnershipEntity>,
+
+    @InjectRepository(OwnershipTransactionEntity)
+    private readonly ownershipTxRepo: Repository<OwnershipTransactionEntity>,
+
+    @InjectRepository(TransactionEntity)
+    private readonly transactionRepo: Repository<TransactionEntity>,
+
+    @InjectRepository(UserEntity)
+    private readonly userRepo: Repository<UserEntity>,
+
+    private readonly s3StorageService: S3StorageService,
+    private readonly assetService: AssetService,
+    private readonly spvService: SpvService,
+    private readonly projectMapper: ProjectMapper,
+    private readonly notificationService: NotificationService,
+  ) {}
+
+  private asRecord(value: unknown): Record<string, any> | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    return value as Record<string, any>;
+  }
+
+  private hasMeaningfulPayload(value: unknown): value is Record<string, any> {
+    const record = this.asRecord(value);
+    if (!record) return false;
+
+    return Object.values(record).some((entry) => {
+      if (entry == null) return false;
+      if (typeof entry === 'string') return entry.trim() !== '';
+      if (typeof entry === 'number') return !Number.isNaN(entry);
+      if (typeof entry === 'boolean') return true;
+      if (Array.isArray(entry)) return entry.length > 0;
+      if (typeof entry === 'object') return Object.keys(entry).length > 0;
+      return false;
+    });
+  }
+
+  private buildTopLevelDraftFallback(source: Record<string, any>): Record<string, any> {
+    const {
+      payloadJson,
+      payload_json,
+      draftPayload,
+      draft_payload,
+      payload: nestedPayload,
+      workflowStatus,
+      workflowStatusJson,
+      workflow_status_json,
+      completedCount,
+      totalSections,
+      status,
+      id,
+      createdAt,
+      updatedAt,
+      deletedAt,
+      lastSavedAt,
+      submittedAt,
+      approvedAt,
+      rejectedAt,
+      lockedAt,
+      ...rest
+    } = source;
+
+    return rest;
+  }
+
+  private resolveCanonicalDraftPayload(payload: any): Record<string, any> {
+    const record = this.asRecord(payload) ?? {};
+    const candidates = [
+      record.draftPayload,
+      record.draft_payload,
+      record.payloadJson,
+      record.payload_json,
+      record.payload,
+      this.buildTopLevelDraftFallback(record),
+    ];
+
+    for (const candidate of candidates) {
+      if (this.hasMeaningfulPayload(candidate)) {
+        return candidate as Record<string, any>;
+      }
+    }
+
+    return {};
+  }
+
+  private resolveWorkflowStatus(payload: any): Record<string, any> {
+    const record = this.asRecord(payload) ?? {};
+
+    return (
+      this.asRecord(record.workflowStatusJson) ??
+      this.asRecord(record.workflow_status_json) ??
+      this.asRecord(record.workflowStatus) ??
+      {}
+    );
+  }
+
+  private sanitizeFileName(fileName: string) {
+    return fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
+  }
+
+  private maskInvestorName(fullname?: string | null, uuid?: string | null) {
+    const cleanName = String(fullname ?? '').trim();
+    if (cleanName) {
+      const parts = cleanName.split(/\s+/).filter(Boolean);
+      if (parts.length === 1) {
+        return `${parts[0]} ••••`;
+      }
+
+      return `${parts[0]} ${parts[1].slice(0, 1)}.`;
+    }
+
+    const fallback = String(uuid ?? '').trim();
+    return fallback ? `Investor ${fallback.slice(0, 6)}` : 'Investor';
+  }
+
+  private async findProjectOrThrow(id: string) {
+    const numericId = Number(id);
+    const project = Number.isFinite(numericId) && numericId > 0
+      ? await this.projectRepo.findOne({
+          where: { id: numericId },
+          relations: ['user'],
+        })
+      : await this.projectRepo.findOne({
+          where: { uuid: id },
+          relations: ['user'],
+        });
+
+    if (!project) {
+      throw new NotFoundException('Project not found');
+    }
+
+    return project;
+  }
+
+  private getProjectFileCategory(purpose: ProjectFilePurpose): ProjectFileCategory {
+    if (purpose === 'PROJECT_DOCUMENT') return 'PROJECT_DOCUMENT';
+    if (purpose === 'VERIFICATION_DOCUMENT') return 'VERIFICATION_DOCUMENT';
+    return 'PROJECT_MEDIA';
+  }
+
+  private validateProjectFileUpload(params: {
+    purpose: ProjectFilePurpose;
+    mimeType: string;
+    documentKey?: string | null;
+  }) {
+    const allowedPurposes: ProjectFilePurpose[] = [
+      'PROJECT_THUMBNAIL',
+      'PROJECT_SUPPORTING_IMAGE',
+      'PROJECT_DOCUMENT',
+      'VERIFICATION_DOCUMENT',
+    ];
+
+    if (!allowedPurposes.includes(params.purpose)) {
+      throw new BadRequestException('Invalid project file purpose');
+    }
+
+    const mimeType = String(params.mimeType ?? '').toLowerCase();
+    const isImage = mimeType.startsWith('image/');
+    const isPdf = mimeType === 'application/pdf';
+
+    if (params.purpose === 'PROJECT_THUMBNAIL' || params.purpose === 'PROJECT_SUPPORTING_IMAGE') {
+      if (!isImage) {
+        throw new BadRequestException('Only image files are allowed for project media uploads');
+      }
+    }
+
+    if (params.purpose === 'PROJECT_DOCUMENT' || params.purpose === 'VERIFICATION_DOCUMENT') {
+      if (!isPdf) {
+        throw new BadRequestException('Only PDF files are allowed for project document uploads');
+      }
+    }
+
+    if (params.purpose === 'PROJECT_DOCUMENT' && !String(params.documentKey ?? '').trim()) {
+      throw new BadRequestException('documentKey is required for project document uploads');
+    }
+  }
+
+  private async markExistingProjectFilesReplaced(params: {
+    projectId: number;
+    purpose: ProjectFilePurpose;
+    documentKey?: string | null;
+  }) {
+    const where: any = {
+      projectId: params.projectId,
+      purpose: params.purpose,
+      deletedAt: IsNull(),
+    };
+
+    if (params.purpose === 'PROJECT_DOCUMENT') {
+      where.documentKey = params.documentKey ?? null;
+    }
+
+    const existing = await this.projectFileRepo.find({ where });
+
+    if (existing.length === 0) return;
+
+    const deletedAt = new Date().toISOString();
+    for (const file of existing) {
+      file.deletedAt = deletedAt as any;
+    }
+    await this.projectFileRepo.save(existing);
+  }
+
+  private async mapProjectFile(file: ProjectFileEntity) {
+    return {
+      id: String(file.id),
+      category: file.category,
+      purpose: file.purpose,
+      documentKey: file.documentKey ?? null,
+      storageKey: file.storageKey,
+      originalFilename: file.originalFilename,
+      mimeType: file.mimeType,
+      fileSize: file.fileSize ?? null,
+      uploadedBy: file.uploadedBy ?? null,
+      uploadedAt: new Date(file.createdAt).toISOString(),
+      url: await this.s3StorageService.getSignedDownloadUrl(file.storageKey),
+    };
+  }
+
+  private async attachProjectAssets(projects: Record<string, any>[]) {
+    if (projects.length === 0) return [];
+
+    const ids = projects
+      .map((project) => Number(project.id))
+      .filter((id) => Number.isFinite(id) && id > 0);
+
+    if (ids.length === 0) return projects;
+
+    const files = await this.projectFileRepo.find({
+      where: {
+        projectId: In(ids),
+        deletedAt: IsNull(),
+      } as any,
+      order: {
+        createdAt: 'DESC' as any,
+      },
+    });
+
+    const mappedFiles = await Promise.all(
+      files.map(async (file) => ({
+        projectId: Number(file.projectId),
+        file: await this.mapProjectFile(file),
+      })),
+    );
+
+    const filesByProjectId = new Map<number, any[]>();
+
+    for (const item of mappedFiles) {
+      const existing = filesByProjectId.get(item.projectId) ?? [];
+      existing.push(item.file);
+      filesByProjectId.set(item.projectId, existing);
+    }
+
+    return projects.map((project) => {
+      const projectFiles = filesByProjectId.get(Number(project.id)) ?? [];
+      const thumbnailFile =
+        projectFiles.find((file) => file.purpose === 'PROJECT_THUMBNAIL') ?? null;
+      const payloadJson = this.asRecord(project.payloadJson) ?? {};
+      const draftPayload = this.asRecord(project.draftPayload) ?? {};
+      const mergeDocuments = (source: Record<string, any>) => {
+        const existingDocs = this.asRecord(source.documents) ?? {};
+
+        for (const file of projectFiles) {
+          if (file.purpose === 'PROJECT_DOCUMENT' && file.documentKey) {
+            existingDocs[file.documentKey] = {
+              ...(this.asRecord(existingDocs[file.documentKey]) ?? {}),
+              url: file.url,
+              fileId: file.id,
+              fileName: file.originalFilename,
+              mimeType: file.mimeType,
+              storageKey: file.storageKey,
+              uploadedAt: file.uploadedAt,
+            };
+          }
+        }
+
+        return {
+          ...source,
+          thumbnailImageUrl: thumbnailFile?.url ?? source.thumbnailImageUrl ?? source.thumbnailUrl ?? '',
+          thumbnailUrl: thumbnailFile?.url ?? source.thumbnailUrl ?? source.thumbnailImageUrl ?? '',
+          thumbnailFile:
+            thumbnailFile ??
+            source.thumbnailFile ??
+            null,
+          documents: existingDocs,
+        };
+      };
+
+      return {
+        ...project,
+        thumbnailUrl: thumbnailFile?.url ?? project.thumbnailUrl,
+        thumbnailFile,
+        projectFiles,
+        payloadJson: mergeDocuments(payloadJson),
+        draftPayload: mergeDocuments(draftPayload),
+      };
+    });
+  }
+
+  private toNumber(value: unknown): number {
+    const parsed = Number(value ?? 0);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  private resolveFundingGoal(project: ProjectEntity) {
+    const payload = this.asRecord(project.payloadJson) ?? {};
+
+    return this.toNumber(
+      project.fundingGoal ??
+        project.totalProjectCapex ??
+        payload.fundingGoal ??
+        payload.capitalStructure?.fundingGoal ??
+        payload.capitalStructure?.totalProjectCapex ??
+        0,
+    );
+  }
+
+  private resolveTokenSupply(project: ProjectEntity) {
+    const payload = this.asRecord(project.payloadJson) ?? {};
+
+    return this.toNumber(
+      project.tokenSupply ??
+        payload.tokenSupply ??
+        payload.tokenStructure?.totalTokenSupply ??
+        0,
+    );
+  }
+
+  private resolveSettledAmount(params: {
+    unitsSold: number;
+    project: ProjectEntity;
+  }) {
+    const tokenPrice = this.toNumber(params.project.tokenPrice);
+
+    // Version 1 funding progress is based on confirmed self-custody settlement
+    // records only. The current self-custody flow stores one settled execution
+    // amount per transaction; when an explicit token price exists we convert
+    // settled units into capital, otherwise we preserve the settled amount 1:1.
+    if (tokenPrice > 0) {
+      return params.unitsSold * tokenPrice;
+    }
+
+    return params.unitsSold;
+  }
+
+  private async attachFundingProgress(projects: ProjectEntity[]) {
+    if (projects.length === 0) return [];
+
+    const ids = projects
+      .map((project) => Number(project.id))
+      .filter((id) => Number.isFinite(id) && id > 0);
+
+    if (ids.length === 0) return projects;
+
+    const settledRows = await this.ownershipTxRepo
+      .createQueryBuilder('tx')
+      .select('tx.project_id', 'projectId')
+      .addSelect('COALESCE(SUM(tx.amount), 0)', 'unitsSold')
+      .addSelect('COUNT(DISTINCT tx.user_id)', 'investorCount')
+      .where('tx.project_id IN (:...ids)', { ids })
+      .andWhere('tx.ownership_source = :ownershipSource', {
+        ownershipSource: 'ON_CHAIN',
+      })
+      .andWhere('tx.settlement_status = :settlementStatus', {
+        settlementStatus: 'SETTLED',
+      })
+      .groupBy('tx.project_id')
+      .getRawMany();
+
+    const settledMap = new Map<number, { unitsSold: number; investorCount: number }>();
+
+    for (const row of settledRows) {
+      settledMap.set(Number(row.projectId), {
+        unitsSold: this.toNumber(row.unitsSold),
+        investorCount: this.toNumber(row.investorCount),
+      });
+    }
+
+    return projects.map((project) => {
+      const settled = settledMap.get(Number(project.id)) ?? {
+        unitsSold: 0,
+        investorCount: 0,
+      };
+      const tokenSupply = this.resolveTokenSupply(project);
+      const amountSettled = this.resolveSettledAmount({
+        unitsSold: settled.unitsSold,
+        project,
+      });
+      const fundingGoal = this.resolveFundingGoal(project);
+      const percentFunded =
+        fundingGoal > 0 ? Math.min(100, (amountSettled / fundingGoal) * 100) : 0;
+
+      return {
+        ...project,
+        amountSettled,
+        fundedSoFar: amountSettled,
+        raisedAmount: amountSettled,
+        investorCount: settled.investorCount,
+        unitsSold: settled.unitsSold,
+        unitsRemaining: Math.max(tokenSupply - settled.unitsSold, 0),
+        purchasedAmount: settled.unitsSold,
+        percentFunded,
+      };
+    });
+  }
+
+  private async serializeProject(project: ProjectEntity | null | undefined) {
+    if (!project) return null;
+    const [projectWithFunding] = await this.attachFundingProgress([project]);
+    const [projectWithAssets] = await this.attachProjectAssets([projectWithFunding as any]);
+    return this.projectMapper.fromProjectToProjectResponseDto(projectWithAssets as any);
+  }
+
+  private async serializeProjects(projects: ProjectEntity[]) {
+    const projectsWithFunding = await this.attachFundingProgress(projects);
+    const projectsWithAssets = await this.attachProjectAssets(projectsWithFunding as any);
+    return projectsWithAssets.map((project) =>
+      this.projectMapper.fromProjectToProjectResponseDto(project as any),
+    );
+  }
+
+  private resolveDseType(source: Record<string, any>, rawPayload?: Record<string, any>) {
+    const topLevel = rawPayload ?? {};
+
+    return (
+      source.dseType ??
+      source?.tokenStructure?.dseType ??
+      topLevel.dseType ??
+      topLevel?.tokenStructure?.dseType ??
+      source.projectType ??
+      topLevel.projectType ??
+      undefined
+    );
+  }
+
+  private assertEditableStatus(project: ProjectEntity) {
+    if (project.status !== 'draft' && project.status !== 'changes_requested') {
+      throw new Error('Only draft or changes requested projects can be edited');
+    }
+  }
+
+  private transitionProject(project: ProjectEntity, nextStatus: ProjectReviewStatus, notes?: string) {
+    const currentStatus = String(project.status ?? 'draft') as ProjectReviewStatus;
+
+    const allowedTransitions: Record<ProjectReviewStatus, ProjectReviewStatus[]> = {
+      draft: ['under_review', 'locked'],
+      under_review: ['changes_requested', 'approved', 'locked'],
+      changes_requested: ['under_review', 'locked'],
+      approved: ['issued', 'locked'],
+      issued: ['live', 'locked'],
+      live: ['locked'],
+      locked: [],
+    };
+
+    if (!allowedTransitions[currentStatus]?.includes(nextStatus)) {
+      throw new Error(`Invalid project status transition: ${currentStatus} -> ${nextStatus}`);
+    }
+
+    project.status = nextStatus;
+    project.lastReviewedAt = new Date();
+
+    if (notes !== undefined) {
+      project.adminNotes = notes;
+    }
+
+    if (nextStatus === 'under_review') {
+      project.submittedAt = new Date();
+      project.rejectedAt = null as any;
+    }
+
+    if (nextStatus === 'changes_requested') {
+      project.rejectedAt = new Date();
+    }
+
+    if (nextStatus === 'approved') {
+      project.approvedAt = new Date();
+      project.rejectedAt = null as any;
+      project.lockedAt = null as any;
+    }
+
+    if (nextStatus === 'issued') {
+      project.issuedAt = new Date();
+      project.lockedAt = null as any;
+    }
+
+    if (nextStatus === 'live') {
+      project.liveAt = new Date();
+      project.lockedAt = null as any;
+    }
+
+    if (nextStatus === 'locked') {
+      project.lockedAt = new Date();
+      project.lockReason = notes ?? project.lockReason ?? null;
+    }
+  }
+
+  private setIssuanceStatus(
+    project: ProjectEntity,
+    status: IssuanceExecutionStatus,
+    txHash?: string | null,
+  ) {
+    project.issuanceStatus = status;
+    if (txHash !== undefined) {
+      project.issuanceTxHash = txHash;
+    }
+  }
+
+  private resolveIssuedSupply(project: ProjectEntity, seriesSupply?: number | null) {
+    const candidate = Number(project.tokenSupply ?? seriesSupply ?? 0);
+
+    if (!Number.isFinite(candidate) || candidate <= 0) {
+      throw new Error('Token supply must exist before issuance');
+    }
+
+    return candidate;
+  }
+
+  private resolveAssetCode(project: ProjectEntity, seriesTokenSymbol?: string | null) {
+    const assetCode = String(project.tokenSymbol ?? seriesTokenSymbol ?? '')
+      .trim()
+      .toUpperCase();
+
+    if (!assetCode) {
+      throw new Error('Token symbol must exist before issuance');
+    }
+
+    return assetCode;
+  }
+
+  private async seedDistributorInventory(params: {
+    projectId: number;
+    seriesId: number;
+    tokenSymbol: string;
+    distributorWalletPublic: string;
+    amount: number;
+  }) {
+    let position = await this.ownershipRepo.findOne({
+      where: {
+        userId: null as any,
+        projectId: params.projectId,
+        seriesId: params.seriesId,
+        tokenSymbol: params.tokenSymbol,
+        custodyType: 'self_custody',
+        walletAddress: params.distributorWalletPublic,
+        status: 'active',
+      } as any,
+    });
+
+    if (!position) {
+      position = this.ownershipRepo.create({
+        userId: null,
+        projectId: params.projectId,
+        seriesId: params.seriesId,
+        tokenSymbol: params.tokenSymbol,
+        amount: 0,
+        custodyType: 'self_custody',
+        ownershipSource: 'ON_CHAIN',
+        settlementStatus: 'SETTLED',
+        walletAddress: params.distributorWalletPublic,
+        custodyAccountRef: null,
+        status: 'active',
+      });
+    }
+
+    position.amount = params.amount;
+    position.ownershipSource = 'ON_CHAIN';
+    position.settlementStatus = 'SETTLED';
+    position.updatedAt = new Date();
+    await this.ownershipRepo.save(position);
+  }
+
+  private applyProjectFields(
+    project: ProjectEntity,
+    source: Record<string, any>,
+    rawPayload?: Record<string, any>,
+  ) {
+    const topLevel = rawPayload ?? {};
+
+    project.projectName =
+      source.projectName ?? source.name ?? topLevel.projectName ?? topLevel.name ?? project.projectName;
+    project.description =
+      source.description ?? topLevel.description ?? project.description;
+    project.projectType =
+      source.projectType ?? topLevel.projectType ?? project.projectType;
+    project.dseType = source.dseType ?? topLevel.dseType ?? project.dseType;
+    project.stage = source.stage ?? topLevel.stage ?? project.stage;
+    project.location =
+      source.siteAddress ??
+      source.fullAddress ??
+      source.location ??
+      topLevel.siteAddress ??
+      topLevel.fullAddress ??
+      topLevel.location ??
+      project.location;
+    project.jurisdiction =
+      source.jurisdiction ?? topLevel.jurisdiction ?? project.jurisdiction;
+    const hasUploadedThumbnailAsset = Boolean(
+      this.asRecord(source.thumbnailAsset)?.storageKey ??
+        this.asRecord(topLevel.thumbnailAsset)?.storageKey,
+    );
+    if (!hasUploadedThumbnailAsset) {
+      project.thumbnailImageUrl =
+        source.thumbnailImageUrl ??
+        source.thumbnailUrl ??
+        topLevel.thumbnailImageUrl ??
+        topLevel.thumbnailUrl ??
+        project.thumbnailImageUrl;
+    }
+    project.fundingGoal =
+      source.fundingGoal !== undefined
+        ? Number(source.fundingGoal)
+        : topLevel.fundingGoal !== undefined
+          ? Number(topLevel.fundingGoal)
+          : project.fundingGoal;
+    project.minimumInvestment = String(
+      source.minimumInvestment ??
+        topLevel.minimumInvestment ??
+        project.minimumInvestment ??
+        '',
+    ) || project.minimumInvestment;
+    project.totalProjectCapex = String(
+      source.totalProjectCapex ??
+        topLevel.totalProjectCapex ??
+        project.totalProjectCapex ??
+        '',
+    ) || project.totalProjectCapex;
+    project.targetIrr = String(
+      source.targetIrr ?? topLevel.targetIrr ?? project.targetIrr ?? '',
+    ) || project.targetIrr;
+    project.targetAnnualYield = String(
+      source.targetAnnualYield ??
+        topLevel.targetAnnualYield ??
+        project.targetAnnualYield ??
+        '',
+    ) || project.targetAnnualYield;
+    project.investmentTermYears = String(
+      source.investmentTermYears ??
+        topLevel.investmentTermYears ??
+        project.investmentTermYears ??
+        '',
+    ) || project.investmentTermYears;
+    project.investmentSummary = String(
+      source.investmentSummary ??
+        topLevel.investmentSummary ??
+        project.investmentSummary ??
+        '',
+    ) || project.investmentSummary;
+    project.commissioningDate =
+      source.commissioningDate ??
+      topLevel.commissioningDate ??
+      project.commissioningDate;
+    project.tokenName =
+      source?.tokenStructure?.tokenName ??
+      source.tokenName ??
+      topLevel?.tokenStructure?.tokenName ??
+      topLevel.tokenName ??
+      project.tokenName;
+    project.tokenSymbol =
+      source?.tokenStructure?.tokenSymbol ??
+      source.tokenSymbol ??
+      topLevel?.tokenStructure?.tokenSymbol ??
+      topLevel.tokenSymbol ??
+      project.tokenSymbol;
+    project.tokenSupply =
+      source?.tokenStructure?.totalTokenSupply !== undefined
+        ? Number(source.tokenStructure.totalTokenSupply)
+        : source.tokenSupply !== undefined
+          ? Number(source.tokenSupply)
+          : topLevel?.tokenStructure?.totalTokenSupply !== undefined
+            ? Number(topLevel.tokenStructure.totalTokenSupply)
+            : topLevel.tokenSupply !== undefined
+              ? Number(topLevel.tokenSupply)
+              : project.tokenSupply;
+  }
+
+  private async getProjectEntity(id: string) {
+    return this.projectRepo.findOne({
+      where: {
+        id: Number(id),
+        deletedAt: null,
+      },
+      relations: ['user'],
+    });
+  }
+
+  private assertCanReadProject(project: ProjectEntity, userId: number, isAdmin: boolean) {
+    if (isAdmin) return;
+
+    if (!project.user || Number(project.user.id) !== Number(userId)) {
+      throw new ForbiddenException('You do not have access to this project');
+    }
+  }
+
+  private assertCanEditProject(project: ProjectEntity, userId: number, isAdmin: boolean) {
+    if (isAdmin) return;
+
+    if (!project.user || Number(project.user.id) !== Number(userId)) {
+      throw new ForbiddenException('You do not have permission to modify this project');
+    }
+  }
+
+  async uploadProjectFile(params: {
+    projectId: string;
+    userId?: number | null;
+    isAdmin?: boolean;
+    file: Express.Multer.File;
+    purpose: ProjectFilePurpose;
+    documentKey?: string | null;
+    uploadedBy?: number | null;
+  }) {
+    const project = await this.getProjectEntity(params.projectId);
+    if (!project) {
+      throw new NotFoundException('Project not found');
+    }
+
+    this.assertCanEditProject(
+      project,
+      Number(params.userId ?? 0),
+      Boolean(params.isAdmin),
+    );
+
+    if (!params.file) {
+      throw new BadRequestException('file is required');
+    }
+
+    this.validateProjectFileUpload({
+      purpose: params.purpose,
+      mimeType: params.file.mimetype,
+      documentKey: params.documentKey,
+    });
+
+    await this.markExistingProjectFilesReplaced({
+      projectId: Number(project.id),
+      purpose: params.purpose,
+      documentKey: params.documentKey,
+    });
+
+    const sanitizedName = this.sanitizeFileName(params.file.originalname);
+    const storageKey = [
+      'projects',
+      String(project.id),
+      params.purpose.toLowerCase(),
+      `${Date.now()}-${sanitizedName}`,
+    ].join('/');
+
+    await this.s3StorageService.uploadFile({
+      key: storageKey,
+      body: params.file.buffer,
+      contentType: params.file.mimetype,
+      metadata: {
+        projectId: String(project.id),
+        purpose: params.purpose,
+        documentKey: String(params.documentKey ?? ''),
+        uploadedBy: String(params.uploadedBy ?? ''),
+      },
+    });
+
+    const category = this.getProjectFileCategory(params.purpose);
+    const entity = this.projectFileRepo.create({
+      projectId: Number(project.id),
+      category,
+      purpose: params.purpose,
+      documentKey: params.documentKey ?? null,
+      storageKey,
+      originalFilename: params.file.originalname,
+      mimeType: params.file.mimetype,
+      fileSize: params.file.size ?? null,
+      uploadedBy: params.uploadedBy ?? null,
+    });
+
+    const saved = await this.projectFileRepo.save(entity);
+    return this.mapProjectFile(saved);
+  }
+
+  private async assertDeveloperSetupCompleted(userId: number) {
+    const profile = await this.developerProfileRepo.findOne({
+      where: { user: { id: userId } } as any,
+      relations: ['user'],
+    });
+
+    if (!profile) {
+      throw new ForbiddenException(
+        'Developer Setup must be completed before Project Setup can be started.',
+      );
+    }
+
+    const allowed =
+      profile.status === 'completed' || profile.status === 'approved';
+
+    if (!allowed) {
+      throw new ForbiddenException(
+        'Developer Setup must be completed before Project Setup can be started.',
+      );
+    }
+
+    return profile;
+  }
+
+  async getProjects() {
+    const projects = await this.projectRepo.find({
+      where: {
+        deletedAt: null,
+        status: 'live' as any,
+      },
+      order: {
+        liveAt: 'DESC' as any,
+        updatedAt: 'DESC' as any,
+      },
+    });
+
+    return await this.serializeProjects(projects);
+  }
+
+  async getAdminProjects() {
+    const projects = await this.projectRepo.find({
+      where: [
+        { status: 'under_review' },
+        { status: 'changes_requested' },
+        { status: 'approved' },
+        { status: 'issued' },
+        { status: 'live' },
+        { status: 'locked' },
+      ],
+      relations: ['user'],
+      order: { updatedAt: 'DESC' as any },
+    });
+
+    return await this.serializeProjects(projects);
+  }
+
+  async getProject(id: string, userId: number, isAdmin = false) {
+    const project = await this.getProjectEntity(id);
+    if (!project) return null;
+    this.assertCanReadProject(project, userId, isAdmin);
+    return await this.serializeProject(project);
+  }
+
+  async getProjectInvestors(id: string, userId: number, isAdmin = false) {
+    const project = await this.findProjectOrThrow(id);
+    const projectOwnerId = Number(project.user?.id ?? 0);
+
+    if (!isAdmin && projectOwnerId !== userId) {
+      throw new ForbiddenException('You do not have access to this project');
+    }
+
+    const ownershipRows = await this.ownershipRepo
+      .createQueryBuilder('ownership')
+      .select('ownership.user_id', 'userId')
+      .addSelect('SUM(ownership.amount)', 'tokensHeld')
+      .addSelect(
+        `MAX(CASE
+          WHEN ownership.status = 'active' AND ownership.settlement_status = 'SETTLED'
+          THEN 1 ELSE 0 END)`,
+        'isActive',
+      )
+      .where('ownership.project_id = :projectId', { projectId: project.id })
+      .andWhere('ownership.user_id IS NOT NULL')
+      .groupBy('ownership.user_id')
+      .getRawMany();
+
+    const userIds = ownershipRows
+      .map((row) => Number(row.userId))
+      .filter((value) => Number.isFinite(value) && value > 0);
+
+    const users = userIds.length
+      ? await this.userRepo.findBy({ id: In(userIds) })
+      : [];
+
+    const userById = new Map(users.map((user) => [Number(user.id), user]));
+
+    const txRows = await this.transactionRepo
+      .createQueryBuilder('transaction')
+      .select('transaction.user_id', 'userId')
+      .addSelect('COALESCE(SUM(transaction.amount), 0)', 'amountInvested')
+      .where('transaction.project_id = :projectId', { projectId: project.id })
+      .andWhere('transaction.user_id IS NOT NULL')
+      .andWhere('transaction.type = :type', { type: 'BUY' })
+      .andWhere('transaction.status = :status', { status: 'COMPLETED' })
+      .groupBy('transaction.user_id')
+      .getRawMany();
+
+    const investedByUserId = new Map(
+      txRows.map((row) => [Number(row.userId), Number(row.amountInvested || 0)]),
+    );
+
+    const tokenSupply = Number(project.tokenSupply ?? 0);
+
+    const investors = ownershipRows
+      .map((row) => {
+        const investorId = Number(row.userId);
+        const user = userById.get(investorId);
+        const tokensHeld = Number(row.tokensHeld || 0);
+        const ownershipPercentage =
+          tokenSupply > 0 ? (tokensHeld / tokenSupply) * 100 : 0;
+
+        return {
+          userId: investorId,
+          investorName: this.maskInvestorName(user?.fullname, user?.uuid),
+          amountInvested: Number(investedByUserId.get(investorId) || 0),
+          tokensHeld,
+          ownershipPercentage,
+          status: Number(row.isActive || 0) > 0 ? 'ACTIVE' : 'PENDING',
+        };
+      })
+      .sort((left, right) => right.tokensHeld - left.tokensHeld);
+
+    const topHolders = investors.slice(0, 10);
+    const othersRows = investors.slice(10);
+    const others = othersRows.length
+      ? {
+          investorCount: othersRows.length,
+          amountInvested: othersRows.reduce(
+            (sum, row) => sum + Number(row.amountInvested || 0),
+            0,
+          ),
+          tokensHeld: othersRows.reduce(
+            (sum, row) => sum + Number(row.tokensHeld || 0),
+            0,
+          ),
+          ownershipPercentage: othersRows.reduce(
+            (sum, row) => sum + Number(row.ownershipPercentage || 0),
+            0,
+          ),
+        }
+      : null;
+
+    return {
+      project: {
+        id: project.id,
+        uuid: project.uuid,
+        name: project.name,
+        tokenSymbol: project.tokenSymbol,
+        tokenSupply: Number(project.tokenSupply ?? 0),
+      },
+      totalInvestors: investors.length,
+      totalCapitalRaised: investors.reduce(
+        (sum, row) => sum + Number(row.amountInvested || 0),
+        0,
+      ),
+      totalTokensHeld: investors.reduce(
+        (sum, row) => sum + Number(row.tokensHeld || 0),
+        0,
+      ),
+      investors,
+      topHolders,
+      others,
+    };
+  }
+
+  async getPublicProject(id: string) {
+    const project = await this.projectRepo.findOne({
+      where: {
+        id: Number(id),
+        deletedAt: null,
+        status: 'live' as any,
+      },
+    });
+
+    return await this.serializeProject(project);
+  }
+
+  async getMyProjects(userId: number) {
+    const projects = await this.projectRepo
+      .createQueryBuilder('project')
+      .leftJoinAndSelect('project.user', 'user')
+      .where('user.id = :userId', { userId })
+      .andWhere('project.deleted_at IS NULL')
+      .orderBy('project.updated_at', 'DESC')
+      .getMany();
+
+    return await this.serializeProjects(projects);
+  }
+
+  async createProject(payload: any, userId: number) {
+    await this.assertDeveloperSetupCompleted(userId);
+    const rawPayload = this.asRecord(payload) ?? {};
+    const canonicalDraftPayload = this.resolveCanonicalDraftPayload(rawPayload);
+
+    const project = this.projectRepo.create({
+      user: { id: userId } as any,
+      status: 'draft',
+      draftPayload: canonicalDraftPayload,
+      payloadJson: canonicalDraftPayload,
+      workflowStatusJson: this.resolveWorkflowStatus(rawPayload),
+      completedCount:
+        typeof rawPayload.completedCount === 'number' ? rawPayload.completedCount : 0,
+      totalSections:
+        typeof rawPayload.totalSections === 'number' ? rawPayload.totalSections : 0,
+      lastSavedAt: new Date(),
+    });
+
+    this.applyProjectFields(project, canonicalDraftPayload, rawPayload);
+    project.dseType = this.resolveDseType(canonicalDraftPayload, rawPayload) ?? project.dseType;
+
+    const saved = await this.projectRepo.save(project);
+    return await this.serializeProject(saved);
+  }
+
+  async updateProject(id: string, payload: any, userId: number, isAdmin = false) {
+    const project = await this.getProjectEntity(id);
+    if (!project) throw new Error('Project not found');
+
+    this.assertCanEditProject(project, userId, isAdmin);
+    this.assertEditableStatus(project);
+
+    const rawPayload = this.asRecord(payload) ?? {};
+    const canonicalDraftPayload = this.resolveCanonicalDraftPayload(rawPayload);
+
+    this.applyProjectFields(project, canonicalDraftPayload, rawPayload);
+    project.dseType = this.resolveDseType(canonicalDraftPayload, rawPayload) ?? project.dseType;
+
+    if (this.hasMeaningfulPayload(canonicalDraftPayload)) {
+      project.payloadJson = canonicalDraftPayload;
+      project.draftPayload = canonicalDraftPayload;
+    }
+
+    const workflowStatus = this.resolveWorkflowStatus(rawPayload);
+    if (this.hasMeaningfulPayload(workflowStatus)) {
+      project.workflowStatusJson = workflowStatus;
+    }
+
+    if (typeof rawPayload.completedCount === 'number') {
+      project.completedCount = rawPayload.completedCount;
+    }
+
+    if (typeof rawPayload.totalSections === 'number') {
+      project.totalSections = rawPayload.totalSections;
+    }
+
+    project.lastSavedAt = new Date();
+
+    const saved = await this.projectRepo.save(project);
+    return await this.serializeProject(saved);
+  }
+
+  async saveDraft(id: string, payload: any, userId: number, isAdmin = false) {
+    return this.updateProject(id, payload, userId, isAdmin);
+  }
+
+  async submitProject(id: string, userId: number) {
+    await this.assertDeveloperSetupCompleted(userId);
+
+    const project = await this.getProjectEntity(id);
+    if (!project) throw new Error('Project not found');
+
+    this.assertEditableStatus(project);
+
+    const payload = (project.draftPayload ?? project.payloadJson ?? {}) as any;
+
+    const resolvedName = project.name ?? payload.projectName ?? payload.name;
+    const resolvedProjectType = project.projectType ?? payload.projectType;
+    const resolvedDseType = this.resolveDseType(payload, payload) ?? project.dseType;
+    const resolvedStage = project.stage ?? payload.stage;
+    const resolvedFundingGoal = project.fundingGoal ?? payload.fundingGoal;
+    const resolvedMinimumInvestment =
+      project.minimumInvestment ?? payload.minimumInvestment;
+    const resolvedLocation =
+      project.location ?? payload.fullAddress ?? payload.location;
+    const resolvedJurisdiction =
+      project.jurisdiction ?? payload.jurisdiction;
+    const resolvedThumbnail =
+      project.thumbnailUrl ?? payload.thumbnailImageUrl ?? payload.thumbnailUrl;
+
+    if (
+      !resolvedName ||
+      !resolvedProjectType ||
+      !resolvedDseType ||
+      !resolvedStage ||
+      !resolvedFundingGoal ||
+      !resolvedMinimumInvestment ||
+      !resolvedLocation
+    ) {
+      throw new Error('Missing required fields');
+    }
+
+    // TEMPORARY FIX: disable frontend-driven section completion gate
+    // Rely on required field validation above instead
+    // if ((project.completedCount || 0) < minimumCompletedSections) {
+    //   throw new Error(
+    //     `Project not complete enough. ${project.completedCount || 0}/${minimumCompletedSections} sections completed.`,
+    //   );
+    // }
+
+    project.name = resolvedName;
+    project.projectType = resolvedProjectType;
+    project.dseType = resolvedDseType;
+    project.stage = resolvedStage;
+    project.fundingGoal = Number(resolvedFundingGoal);
+    project.minimumInvestment = String(resolvedMinimumInvestment);
+    project.location = resolvedLocation;
+    project.jurisdiction = resolvedJurisdiction;
+    project.thumbnailUrl = resolvedThumbnail;
+
+    project.payloadJson = payload;
+    project.workflowStatusJson = (project.workflowStatusJson as any) ?? {};
+
+    this.transitionProject(project, 'under_review');
+    project.lastSavedAt = new Date();
+
+    const saved = await this.projectRepo.save(project);
+
+    const existingVersions = await this.versionRepo.count({
+      where: { project: { id: saved.id } as any },
+    });
+
+    const version = this.versionRepo.create({
+      project: saved,
+      versionNumber: existingVersions + 1,
+      status: 'under_review',
+      payloadJson: saved.payloadJson,
+      changeSummary:
+        existingVersions === 0
+          ? 'Initial submission'
+          : 'Resubmitted after changes',
+      submittedAt: new Date(),
+    });
+
+    await this.versionRepo.save(version);
+
+    return await this.serializeProject(saved);
+  }
+
+  async updateStatus(id: string, status: string, notes?: string) {
+    const project = await this.getProjectEntity(id);
+    if (!project) throw new Error('Project not found');
+
+    const allowedStatuses: ProjectReviewStatus[] = [
+      'draft',
+      'under_review',
+      'changes_requested',
+      'approved',
+      'issued',
+      'live',
+      'locked',
+    ];
+
+    if (!allowedStatuses.includes(status as ProjectReviewStatus)) {
+      throw new Error(`Invalid status: ${status}`);
+    }
+
+    this.transitionProject(project, status as ProjectReviewStatus, notes);
+
+    const saved = await this.projectRepo.save(project);
+
+    if (status === 'approved' && saved.user?.id) {
+      await this.notificationService.createNotification(
+        Number(saved.user.id),
+        NotificationType.PROJECT_APPROVED,
+        'Project approved',
+        `${saved.name} has been approved for the next stage of the RegenX workflow.`,
+        'project',
+        Number(saved.id),
+      );
+    }
+
+    return await this.serializeProject(saved);
+  }
+
+  async approveProject(id: string, notes?: string) {
+    return this.updateStatus(id, 'approved', notes);
+  }
+
+  async requestChanges(id: string, notes?: string) {
+    return this.updateStatus(id, 'changes_requested', notes);
+  }
+
+  async issueProject(id: string, notes?: string, initiatedByUserId?: number) {
+    const project = await this.getProjectEntity(id);
+    if (!project) throw new Error('Project not found');
+
+    if (project.status !== 'approved') {
+      throw new Error('Only approved projects can be issued');
+    }
+
+    const seriesResult = await this.spvService.createSeriesForProject(Number(id));
+    const issuedSupply = this.resolveIssuedSupply(
+      project,
+      Number(seriesResult.series.totalSupply ?? 0),
+    );
+    const assetCode = this.resolveAssetCode(project, seriesResult.series.tokenSymbol);
+    const issuerWalletPublic = this.assetService.getIssuerWalletPublic();
+    const distributorWalletPublic =
+      project.distributorWalletPublic ||
+      this.assetService.getConfiguredDistributorWalletPublic();
+
+    project.spvId = seriesResult.spv.id;
+    project.seriesId = seriesResult.series.id;
+    project.issuerWalletPublic = issuerWalletPublic;
+    project.distributorWalletPublic = distributorWalletPublic;
+    project.assetCode = assetCode;
+    project.assetIssuer = issuerWalletPublic;
+    project.issuedSupply = String(issuedSupply);
+    project.issuanceInitiatedBy = initiatedByUserId ?? project.issuanceInitiatedBy;
+    project.tokenSymbol = assetCode;
+
+    (project as any).payloadJson = {
+      ...((project as any).payloadJson ?? {}),
+      seriesId: seriesResult.series.id,
+      spvId: seriesResult.spv.id,
+      seriesName: seriesResult.series.name,
+      tokenSymbol: assetCode,
+      assetCode,
+      assetIssuer: issuerWalletPublic,
+      issuerWalletPublic,
+      distributorWalletPublic,
+      issuedSupply: String(issuedSupply),
+      issuanceStatus: 'pending',
+      issuanceMode: 'issuer_to_distributor',
+    };
+
+    this.setIssuanceStatus(project, 'pending');
+    await this.projectRepo.save(project);
+
+    try {
+      const issuance = await this.assetService.issueToDistribution(
+        assetCode,
+        String(issuedSupply),
+        distributorWalletPublic,
+      );
+
+      await this.seedDistributorInventory({
+        projectId: Number(project.id),
+        seriesId: seriesResult.series.id,
+        tokenSymbol: assetCode,
+        distributorWalletPublic,
+        amount: issuedSupply,
+      });
+
+      this.transitionProject(project, 'issued', notes);
+      this.setIssuanceStatus(project, 'completed', issuance.txHash);
+      project.issuerWalletPublic = issuance.issuerPublicKey;
+      project.distributorWalletPublic = issuance.distributorPublicKey;
+      project.assetCode = assetCode;
+      project.assetIssuer = issuance.issuerPublicKey;
+      project.issuedSupply = String(issuedSupply);
+
+      (project as any).payloadJson = {
+        ...((project as any).payloadJson ?? {}),
+        seriesId: seriesResult.series.id,
+        spvId: seriesResult.spv.id,
+        seriesName: seriesResult.series.name,
+        tokenSymbol: assetCode,
+        assetCode,
+        assetIssuer: issuance.issuerPublicKey,
+        issuerWalletPublic: issuance.issuerPublicKey,
+        distributorWalletPublic: issuance.distributorPublicKey,
+        issuedSupply: String(issuedSupply),
+        issuanceStatus: 'completed',
+        issuanceTxHash: issuance.txHash,
+        issuedAt: new Date().toISOString(),
+        issuanceMode: 'issuer_to_distributor',
+        fundingSourceOfTruth:
+          'Future funding progress must be based on confirmed settled distribution or ownership events, not investor intent or unsigned transactions.',
+      };
+
+      const saved = await this.projectRepo.save(project);
+      return await this.serializeProject(saved);
+    } catch (error: any) {
+      this.setIssuanceStatus(project, 'failed', null);
+
+      (project as any).payloadJson = {
+        ...((project as any).payloadJson ?? {}),
+        seriesId: seriesResult.series.id,
+        spvId: seriesResult.spv.id,
+        tokenSymbol: assetCode,
+        assetCode,
+        assetIssuer: issuerWalletPublic,
+        issuerWalletPublic,
+        distributorWalletPublic,
+        issuedSupply: String(issuedSupply),
+        issuanceStatus: 'failed',
+        issuanceFailureReason: error?.message ?? 'Unknown issuance error',
+        issuanceMode: 'issuer_to_distributor',
+      };
+
+      await this.projectRepo.save(project);
+      throw error;
+    }
+  }
+
+  async goLive(id: string) {
+    const project = await this.getProjectEntity(id);
+    if (!project) throw new Error('Project not found');
+
+    if (project.status !== 'issued') {
+      throw new Error('Only issued projects can go live');
+    }
+
+    const payload = this.asRecord(project.payloadJson);
+    if (String(project.issuanceStatus ?? payload?.issuanceStatus ?? 'not_started') !== 'completed') {
+      throw new Error('Project issuance has not completed successfully');
+    }
+
+    const resolvedSeriesId = project.seriesId ?? Number(payload?.seriesId ?? 0);
+    const resolvedAssetCode = project.assetCode ?? String(payload?.assetCode ?? '').trim();
+    const resolvedAssetIssuer =
+      project.assetIssuer ?? String(payload?.assetIssuer ?? '').trim();
+
+    if (!project.issuedAt || !resolvedSeriesId || !resolvedAssetCode || !resolvedAssetIssuer) {
+      throw new Error('Project issuance prerequisites are incomplete');
+    }
+
+    this.transitionProject(project, 'live');
+
+    const saved = await this.projectRepo.save(project);
+    return await this.serializeProject(saved);
+  }
+
+  async approveAndIssueClassic(id: string, notes?: string) {
+    return this.approveProject(id, notes);
+  }
+
+  async lockProject(id: string, reason?: string) {
+    const project = await this.getProjectEntity(id);
+    if (!project) throw new Error('Project not found');
+
+    if (project.status === 'locked') {
+      throw new Error('Project is already locked');
+    }
+
+    this.transitionProject(project, 'locked', reason);
+
+    const saved = await this.projectRepo.save(project);
+    return await this.serializeProject(saved);
+  }
+
+  async softDeleteProject(id: string, userId: number, isAdmin = false) {
+    const project = await this.getProjectEntity(id);
+
+    if (!project) {
+      throw new Error('Project not found');
+    }
+
+    this.assertCanEditProject(project, userId, isAdmin);
+
+    if (project.status !== 'draft') {
+      throw new Error('Only draft projects can be deleted');
+    }
+
+    project.deletedAt = new Date().toISOString() as any;
+
+    const saved = await this.projectRepo.save(project);
+    return await this.serializeProject(saved);
+  }
+}

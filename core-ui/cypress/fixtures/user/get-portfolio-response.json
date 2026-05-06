@@ -1,0 +1,42 @@
+{
+	"data": [
+		{
+			"type": "project",
+			"id": "8328408f-28d9-4e82-8786-22104e380fb0",
+			"attributes": {
+				"createdAt": "2025-02-17T06:49:48.643Z",
+				"updatedAt": "2025-02-17T06:49:48.643Z",
+				"deletedAt": null,
+				"name": "Bamboo Supply",
+				"description": "This is an example project",
+				"location": "Sidney, AU",
+				"climateImpact": "It involves bamboo supplier",
+				"tokenSupply": 100000000,
+				"tokenPrice": 50000000,
+				"tokenSymbol": "BAMBOO",
+				"generatesCarbonCredits": false,
+				"tokenAddress": "CDWUIGEAYQI5I5HVHOER455BUX7767EDCU2KR55KNJASD3OETCWL3P2P",
+				"ownerAddress": "GBRPVMU63WE636GZU5LUWNBX275LO66YFI4PIZ5HTQHYF2VM5AYV7M6V"
+			}
+		},
+		{
+			"type": "project",
+			"id": "8328408f-28d9-4e82-8786-22104e380fb2",
+			"attributes": {
+				"createdAt": "2025-02-17T06:49:48.643Z",
+				"updatedAt": "2025-02-17T06:49:48.643Z",
+				"deletedAt": null,
+				"name": "Bamboo Supply 2",
+				"description": "This is an example project 2",
+				"location": "Sidney, AU",
+				"climateImpact": "It involves bamboo supplier 2",
+				"tokenSupply": 100000000,
+				"tokenPrice": 50000000,
+				"tokenSymbol": "BAMBOO2",
+				"generatesCarbonCredits": false,
+				"tokenAddress": "CDWUIGEAYQI5I5HVHOER455BUX7767EDCU2KR55KNJASD3OETCWL3P2C",
+				"ownerAddress": "GBRPVMU63WE636GZU5LUWNBX275LO66YFI4PIZ5HTQHYF2VM5AYV7M6V"
+			}
+		}
+	]
+}

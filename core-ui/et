@@ -1,0 +1,2310 @@
+[1mdiff --git a/src/components/layout/sidebar/index.tsx b/src/components/layout/sidebar/index.tsx[m
+[1mindex 4926e27..bffeaec 100644[m
+[1m--- a/src/components/layout/sidebar/index.tsx[m
+[1m+++ b/src/components/layout/sidebar/index.tsx[m
+[36m@@ -1,235 +1,113 @@[m
+[31m-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';[m
+[32m+[m[32mimport { useMemo } from 'react';[m
+ import { useLocation, useNavigate } from 'react-router-dom';[m
+ [m
+ import { getMenuItems } from './constants/SidebarMenuItems';[m
+[31m-import SidebarLinkItem from './items/SidebarLinkItem';[m
+[31m-import { groupMenuItems } from './utils/groupMenuItems';[m
+[31m-import { isSidebarItemActive } from './utils/isSidebarItemActive';[m
+[31m-[m
+[31m-import MenuIcon from '@/assets/svg-element/Menu';[m
+[31m-import { UserType, UserTypeLabels } from '@/constants/enum/user-type.enum';[m
+[31m-import { PATHS } from '@/constants/routes/paths';[m
+[31m-import { useAuthProvider } from '@/hooks/auth/useAuthProvider';[m
+[31m-import { IGroupedMenuItem } from '@/interfaces/layout/IGroupedMenuItem';[m
+[31m-import { IMenuItem } from '@/interfaces/layout/IMenuItem';[m
+[32m+[m
+[32m+[m[32mimport { AUTH_PREFIX, PATHS } from '@/constants/routes/paths';[m
+ import { useUserStore } from '@/store/user.store';[m
+ [m
+[31m-import logo from '@assets/png/logo-dark.png';[m
+[31m-[m
+[31m-const INVESTOR_TIPS = [[m
+[31m-	'A wholesale or sophisticated investor must upload a valid accountant’s certificate before accessing investments.',[m
+[31m-	'Investor classification is verified, not self-declared. Access is restricted until confirmed.',[m
+[31m-	'Investors must complete full KYC/AML verification prior to transacting.',[m
+[31m-	'Wallet connection is mandatory for settlement and ownership recording.',[m
+[31m-	'Investors are responsible for maintaining control of their wallet credentials.',[m
+[31m-	'All investments are illiquid by default unless a secondary market exists.',[m
+[31m-	'Returns are not guaranteed and are dependent on real-world asset performance.',[m
+[31m-	'Token ownership represents economic exposure, not direct asset ownership.',[m
+[32m+[m[32mimport Logo from '@assets/png/logo-dark.png';[m
+[32m+[m
+[32m+[m[32mconst TIPS = [[m
+ 	'Investors must review offering documents before committing capital.',[m
+[31m-	'RegenX does not provide personal financial advice.',[m
+[31m-	'Investments are executed via digital syndicated energy interests (DSEIs) linked to underlying project cashflows.',[m
+[31m-	'Minimum investment amounts are defined per project and enforced on-chain/off-chain.',[m
+[31m-	'Distributions are paid based on actual project revenue cycles, not fixed schedules.',[m
+[31m-	'Settlement occurs in approved currencies (e.g. AUDD or fiat rails) depending on structure.',[m
+[31m-	'Each project is structured via an SPV or managed investment scheme (MIS).',[m
+[31m-	'Cashflows are governed by a Revenue Participation Agreement (RPA).',[m
+[31m-	'Projects undergo commercial, technical, and financial due diligence prior to listing.',[m
+[31m-	'Impact metrics are tracked via dMRV or verified data partners where available.',[m
+[31m-	'Secondary liquidity is not guaranteed and depends on market participation.',[m
+[31m-	'Exit opportunities may occur via secondary trading, refinancing, or project completion events.',[m
+ ];[m
+ [m
+[31m-const getUserRoleLabel = (userType?: string | null) => {[m
+[31m-	if (userType === UserType.CLIMATE_DEVELOPER) {[m
+[31m-		return UserTypeLabels.CLIMATE_DEVELOPER;[m
+[31m-	}[m
+[31m-[m
+[31m-	if (userType === UserType.WHOLESALE_INVESTOR) {[m
+[31m-		return UserTypeLabels.WHOLESALE_INVESTOR;[m
+[31m-	}[m
+[31m-[m
+[31m-	if (userType === UserType.WEALTH_MANAGER) {[m
+[31m-		return UserTypeLabels.WEALTH_MANAGER;[m
+[31m-	}[m
+[32m+[m[32mconst getTipIndexFromPath = (pathname: string, totalTips: number) => {[m
+[32m+[m	[32mif (!totalTips) return 0;[m
+ [m
+[31m-	if (userType === 'admin') {[m
+[31m-		return 'Admin';[m
+[32m+[m	[32mlet value = 0;[m
+[32m+[m	[32mfor (let i = 0; i < pathname.length; i += 1) {[m
+[32m+[m		[32mvalue += pathname.charCodeAt(i);[m
+ 	}[m
+ [m
+[31m-	return 'User';[m
+[31m-};[m
+[31m-[m
+[31m-const getTipIndexFromPath = (pathname: string, totalTips: number) => {[m
+[31m-	const value = pathname[m
+[31m-		.split('')[m
+[31m-		.reduce((sum, char) => sum + char.charCodeAt(0), 0);[m
+[31m-[m
+ 	return value % totalTips;[m
+ };[m
+ [m
+[31m-const Sidebar: React.FC = () => {[m
+[31m-	const { handleSignOut } = useAuthProvider();[m
+[31m-	const { user } = useUserStore();[m
+[32m+[m[32mconst Sidebar = () => {[m
+ 	const location = useLocation();[m
+ 	const navigate = useNavigate();[m
+[31m-	const [menuItems, setMenuItems] = useState<IMenuItem[]>([]);[m
+[31m-	const [isMenuOpen, setIsMenuOpen] = useState(false);[m
+[31m-[m
+[31m-	const groupedMenuItems = useMemo(() => {[m
+[31m-		return menuItems.reduce(groupMenuItems, [] as IGroupedMenuItem[]);[m
+[31m-	}, [menuItems]);[m
+[31m-[m
+[31m-	const filterMenuItems = useCallback(() => {[m
+[31m-		const roleAwareItems = getMenuItems(user?.type);[m
+[31m-[m
+[31m-		const itemsWithActiveState = roleAwareItems.map((item) => {[m
+[31m-			const isItemActive = isSidebarItemActive(item, location);[m
+[31m-			return {[m
+[31m-				...item,[m
+[31m-				active: isItemActive,[m
+[31m-				selected: isItemActive,[m
+[31m-			};[m
+[31m-		});[m
+[31m-[m
+[31m-		setMenuItems(itemsWithActiveState);[m
+[31m-	}, [location, user?.type]);[m
+[31m-[m
+[31m-	useEffect(() => {[m
+[31m-		filterMenuItems();[m
+[31m-	}, [filterMenuItems]);[m
+[31m-[m
+[31m-	useEffect(() => {[m
+[31m-		setIsMenuOpen(false);[m
+[31m-	}, [location]);[m
+[31m-[m
+[31m-	const roleLabel = getUserRoleLabel(user?.type);[m
+[31m-[m
+[31m-	const activeTip = useMemo(() => {[m
+[31m-		const tipIndex = getTipIndexFromPath([m
+[31m-			location.pathname,[m
+[31m-			INVESTOR_TIPS.length,[m
+[31m-		);[m
+[31m-		return INVESTOR_TIPS[tipIndex];[m
+[32m+[m	[32mconst { user } = useUserStore();[m
+[32m+[m
+[32m+[m	[32mconst menuItems = useMemo(() => getMenuItems(user?.type), [user?.type]);[m
+[32m+[m
+[32m+[m	[32mconst currentTip = useMemo(() => {[m
+[32m+[m		[32mconst tipIndex = getTipIndexFromPath(location.pathname, TIPS.length);[m
+[32m+[m		[32mreturn TIPS[tipIndex];[m
+ 	}, [location.pathname]);[m
+ [m
+[31m-	return ([m
+[31m-		<>[m
+[31m-			{isMenuOpen && ([m
+[31m-				<div[m
+[31m-					className="fixed inset-0 z-40 bg-black bg-opacity-50 md:hidden"[m
+[31m-					onClick={() => setIsMenuOpen(false)}[m
+[31m-				/>[m
+[31m-			)}[m
+[32m+[m	[32mconst handleLogout = () => {[m
+[32m+[m		[32mnavigate(`/${AUTH_PREFIX}/${PATHS.SIGN_OUT}`);[m
+[32m+[m	[32m};[m
+ [m
+[32m+[m	[32mreturn ([m
+[32m+[m		[32m<div className="flex h-full w-[260px] flex-col border-r border-[#E5E7EB] bg-white px-4 py-6">[m
+ 			<div[m
+[31m-				className={`[m
+[31m-          w-full bg-white shadow-lg transition-all duration-300[m
+[31m-          ${isMenuOpen ? 'fixed left-0 top-0 z-50 h-fit' : 'h-16'}[m
+[31m-          md:flex md:h-full md:w-[260px] md:flex-col[m
+[31m-        `}[m
+[32m+[m				[32mclassName="mb-6 flex cursor-pointer items-center gap-2 px-2"[m
+[32m+[m				[32monClick={() => navigate('/')}[m
+ 			>[m
+[31m-				<div className="flex h-16 items-center justify-between bg-white px-4 md:hidden">[m
+[31m-					<button[m
+[31m-						type="button"[m
+[31m-						onClick={() => navigate(PATHS.DASHBOARD)}[m
+[31m-						className="flex items-center"[m
+[31m-					>[m
+[31m-						<img src={logo} className="h-10 w-10" alt="RegenX Logo" />[m
+[31m-					</button>[m
+[32m+[m				[32m<img src={Logo} alt="RegenX" className="h-10 w-auto object-contain" />[m
+[32m+[m				[32m<span className="text-lg font-semibold text-[#111827]">RegenX</span>[m
+[32m+[m			[32m</div>[m
+ [m
+[31m-					<button[m
+[31m-						onClick={() => setIsMenuOpen(!isMenuOpen)}[m
+[31m-						className="rounded-lg p-2 hover:bg-gray-100"[m
+[32m+[m			[32m<div className="flex flex-1 flex-col gap-2">[m
+[32m+[m				[32m{menuItems.map((item) => ([m
+[32m+[m					[32m<div[m
+[32m+[m						[32mkey={item.label}[m
+[32m+[m						[32monClick={() => {[m
+[32m+[m							[32mif (item.path === '/project-setup') {[m
+[32m+[m								[32mconst rememberedDraftId = localStorage.getItem([m
+[32m+[m									[32m'regenx_last_project_setup_draft',[m
+[32m+[m								[32m);[m
+[32m+[m								[32mnavigate([m
+[32m+[m									[32mrememberedDraftId[m
+[32m+[m										[32m? `/project-setup?draft=${rememberedDraftId}`[m
+[32m+[m										[32m: item.path,[m
+[32m+[m								[32m);[m
+[32m+[m								[32mreturn;[m
+[32m+[m							[32m}[m
+[32m+[m							[32mnavigate(item.path);[m
+[32m+[m						[32m}}[m
+[32m+[m						[32mclassName={`flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium ${[m
+[32m+[m							[32mlocation.pathname === item.path[m
+[32m+[m								[32m? 'bg-[#F3F4F6] text-[#111827]'[m
+[32m+[m								[32m: 'text-[#6B7280] hover:bg-[#F9FAFB]'[m
+[32m+[m						[32m}`}[m
+ 					>[m
+[31m-						<MenuIcon className="h-6 w-6 text-custom-dark-blue" />[m
+[31m-					</button>[m
+[31m-				</div>[m
+[31m-[m
+[31m-				<div[m
+[31m-					className={`[m
+[31m-            ${[m
+[31m-							isMenuOpen[m
+[31m-								? 'flex h-[calc(100%-4rem)] flex-col px-4 pb-4'[m
+[31m-								: 'hidden'[m
+[31m-						}[m
+[31m-            md:flex md:h-full md:flex-col md:px-4 md:pb-4 md:pt-4[m
+[31m-          `}[m
+[31m-				>[m
+[31m-					<div className="mb-6 hidden flex-col items-center md:flex">[m
+[31m-						<button[m
+[31m-							type="button"[m
+[31m-							onClick={() => navigate(PATHS.DASHBOARD)}[m
+[31m-							className="flex w-full flex-col items-center justify-center"[m
+[31m-						>[m
+[31m-							<img src={logo} className="h-[88px] w-[88px]" alt="RegenX Logo" />[m
+[31m-						</button>[m
+[31m-						<p className="mt-3 text-center text-xl font-semibold text-[#111827]">[m
+[31m-							Menu[m
+[31m-						</p>[m
+[32m+[m						[32m{item.icon}[m
+[32m+[m						[32m<span>{item.label}</span>[m
+ 					</div>[m
+[32m+[m				[32m))}[m
+[32m+[m			[32m</div>[m
+[32m+[m
+[32m+[m			[32m<div className="mt-6 rounded-2xl border border-yellow-200 bg-yellow-50 p-4">[m
+[32m+[m				[32m<p className="text-sm font-semibold text-yellow-800">Tip</p>[m
+[32m+[m				[32m<p className="mt-1 text-sm text-[#4B5563]">{currentTip}</p>[m
+[32m+[m			[32m</div>[m
+ [m
+[31m-					<div className="flex h-full pt-2">[m
+[31m-						<ul className="w-full space-y-3 md:space-y-4">[m
+[31m-							{groupedMenuItems.map((group, index) => ([m
+[31m-								<Fragment key={`${group.title}-${index}`}>[m
+[31m-									{group.items.map((item, itemIndex) => ([m
+[31m-										<Fragment key={`${item.title}-${itemIndex}`}>[m
+[31m-											<li data-test={item.dataTest}>[m
+[31m-												<SidebarLinkItem[m
+[31m-													item={item}[m
+[31m-													onClick={() => setIsMenuOpen(false)}[m
+[31m-													isCollapsed={false}[m
+[31m-													isMobile={isMenuOpen}[m
+[31m-												/>[m
+[31m-											</li>[m
+[31m-										</Fragment>[m
+[31m-									))}[m
+[31m-								</Fragment>[m
+[31m-							))}[m
+[31m-						</ul>[m
+[32m+[m			[32m<div className="mt-6 rounded-2xl border border-blue-100 bg-blue-50 p-4">[m
+[32m+[m				[32m<div className="flex items-center gap-3">[m
+[32m+[m					[32m<div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#D6E0EA] text-sm font-semibold text-[#3B82F6]">[m
+[32m+[m						[32m{user?.fullName?.charAt(0) || 'U'}[m
+ 					</div>[m
+ [m
+[31m-					<div className="mt-6 rounded-2xl border border-[#F3D27A] bg-[#FFF7D6] p-4 shadow-sm">[m
+[31m-						<div className="mb-2 flex items-center justify-center gap-2 text-center">[m
+[31m-							<span className="text-lg leading-none">💡</span>[m
+[31m-							<p className="text-sm font-semibold text-[#92400E]">Tips</p>[m
+[31m-						</div>[m
+[31m-						<p className="text-sm leading-6 text-[#78350F] text-center">[m
+[31m-							“{activeTip}”[m
+[32m+[m					[32m<div>[m
+[32m+[m						[32m<p className="text-sm font-semibold text-[#111827]">[m
+[32m+[m							[32m{user?.fullName ?? user?.email ?? 'User'}[m
+[32m+[m						[32m</p>[m
+[32m+[m						[32m<p className="text-xs text-[#6B7280] capitalize">[m
+[32m+[m							[32m{user?.type?.replace(/([A-Z])/g, ' $1')}[m
+ 						</p>[m
+ 					</div>[m
+[31m-[m
+[31m-					{user && ([m
+[31m-						<div className="mt-6">[m
+[31m-							<div className="rounded-2xl border border-[#DCEAF0] bg-[#EAF9FE] p-3 shadow-sm">[m
+[31m-								<div className="flex items-center gap-3">[m
+[31m-									<div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#0EA5E9]/10 font-semibold text-[#0EA5E9]">[m
+[31m-										{(user.fullName || 'R').charAt(0).toUpperCase()}[m
+[31m-									</div>[m
+[31m-[m
+[31m-									<div className="min-w-0 flex-1">[m
+[31m-										<p className="truncate text-sm font-semibold text-[#0F172A]">[m
+[31m-											{user.fullName || 'RegenX User'}[m
+[31m-										</p>[m
+[31m-										<p className="mt-0.5 text-xs font-medium text-[#475569]">[m
+[31m-											{roleLabel}[m
+[31m-										</p>[m
+[31m-									</div>[m
+[31m-								</div>[m
+[31m-[m
+[31m-								<button[m
+[31m-									type="button"[m
+[31m-									onClick={handleSignOut}[m
+[31m-									className="mt-3 w-full rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-[#0F172A] shadow-sm transition hover:bg-[#F8FAFC]"[m
+[31m-								>[m
+[31m-									Sign out[m
+[31m-								</button>[m
+[31m-							</div>[m
+[31m-						</div>[m
+[31m-					)}[m
+ 				</div>[m
+[32m+[m
+[32m+[m				[32m<button[m
+[32m+[m					[32monClick={handleLogout}[m
+[32m+[m					[32mclassName="mt-4 w-full rounded-xl bg-blue-600 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700"[m
+[32m+[m				[32m>[m
+[32m+[m					[32mSign out[m
+[32m+[m				[32m</button>[m
+ 			</div>[m
+[31m-		</>[m
+[32m+[m		[32m</div>[m
+ 	);[m
+ };[m
+ [m
+[1mdiff --git a/src/pages/project-setup/ProjectSetup.tsx b/src/pages/project-setup/ProjectSetup.tsx[m
+[1mnew file mode 100644[m
+[1mindex 0000000..dcd982d[m
+[1m--- /dev/null[m
+[1m+++ b/src/pages/project-setup/ProjectSetup.tsx[m
+[36m@@ -0,0 +1,1985 @@[m
+[32m+[m[32mimport { useEffect, useState } from 'react';[m
+[32m+[m[32mimport { useNavigate, useSearchParams } from 'react-router-dom';[m
+[32m+[m
+[32m+[m[32mimport AgreementSections from '@/components/project/AgreementSections';[m
+[32m+[m
+[32m+[m[32mtype DseType = 'Operating DSE' | 'Development DSE' | 'Hybrid DSE';[m
+[32m+[m[32mtype ProjectType = 'Solar' | 'Battery' | 'Wind' | 'Hybrid';[m
+[32m+[m[32mtype ProjectStage = 'Development' | 'Construction' | 'Operating';[m
+[32m+[m[32mtype SiteOwnership = 'Owned' | 'Leased' | 'PPA Host';[m
+[32m+[m[32mtype GridConnectionStatus = 'Approved' | 'Pending' | 'Not started';[m
+[32m+[m[32mtype RevenueType = 'PPA' | 'Arbitrage' | 'Capacity' | 'Mixed';[m
+[32m+[m[32mtype CounterpartyType = 'Corporate' | 'Utility' | 'SME';[m
+[32m+[m[32mtype PermitStatus = 'Approved' | 'Pending' | 'Not required';[m
+[32m+[m[32mtype RiskLevel = 'Low' | 'Medium' | 'High';[m
+[32m+[m[32mtype EntityType = 'Trust' | 'Company' | 'MIS';[m
+[32m+[m[32mtype DistributionFrequency = 'Monthly' | 'Quarterly' | 'Annual';[m
+[32m+[m[32mtype InvestorRight = 'Income' | 'Ownership' | 'Voting';[m
+[32m+[m
+[32m+[m[32mtype WorkflowKey =[m
+[32m+[m	[32m| 'projectOverview'[m
+[32m+[m	[32m| 'assetDescription'[m
+[32m+[m	[32m| 'technicalDetails'[m
+[32m+[m	[32m| 'commercialModel'[m
+[32m+[m	[32m| 'useOfFunds'[m
+[32m+[m	[32m| 'complianceAndRisks'[m
+[32m+[m	[32m| 'legalStructure'[m
+[32m+[m	[32m| 'documentsAndUploads'[m
+[32m+[m	[32m| 'agreement';[m
+[32m+[m
+[32m+[m[32mtype WorkflowItem = {[m
+[32m+[m	[32mkey: WorkflowKey;[m
+[32m+[m	[32mtitle: string;[m
+[32m+[m	[32mdescription: string;[m
+[32m+[m[32m};[m
+[32m+[m
+[32m+[m[32mtype UseOfFunds = {[m
+[32m+[m	[32mequipmentCost: string;[m
+[32m+[m	[32minstallationCost: string;[m
+[32m+[m	[32mgridConnectionCost: string;[m
+[32m+[m	[32mdevelopmentCosts: string;[m
+[32m+[m	[32mcontingency: string;[m
+[32m+[m	[32mregenxFees: string;[m
+[32m+[m[32m};[m
+[32m+[m
+[32m+[m[32mtype DocumentsUploads = {[m
+[32m+[m	[32minformationMemorandum: string;[m
+[32m+[m	[32mfinancialModel: string;[m
+[32m+[m	[32mppaRevenueContracts: string;[m
+[32m+[m	[32mengineeringReport: string;[m
+[32m+[m	[32mlegalDocs: string;[m
+[32m+[m[32m};[m
+[32m+[m
+[32m+[m[32mtype AgreementSection = {[m
+[32m+[m	[32mplatformAgreementAccepted: boolean;[m
+[32m+[m	[32mdeveloperDeclarationAccepted: boolean;[m
+[32m+[m	[32mofferingTermsAccepted: boolean;[m
+[32m+[m	[32msignatoryFullName: string;[m
+[32m+[m	[32msignatoryTitle: string;[m
+[32m+[m	[32msignatoryAuthority: string;[m
+[32m+[m	[32msignatoryDate: string;[m
+[32m+[m[32m};[m
+[32m+[m
+[32m+[m[32mtype ProjectSetupForm = {[m
+[32m+[m	[32mtokenName: string;[m
+[32m+[m	[32mtokenSymbol: string;[m
+[32m+[m	[32mtotalSupply: string;[m
+[32m+[m	[32mtokenPrice: string;[m
+[32m+[m	[32mprojectName: string;[m
+[32m+[m	[32mprojectType: ProjectType;[m
+[32m+[m	[32mdseType: DseType;[m
+[32m+[m	[32mstage: ProjectStage;[m
+[32m+[m	[32mfullAddress: string;[m
+[32m+[m	[32mjurisdiction: string;[m
+[32m+[m	[32mfundingGoal: string;[m
+[32m+[m	[32mtotalProjectCapex: string;[m
+[32m+[m	[32mminimumInvestment: string;[m
+[32m+[m	[32mtargetIrr: string;[m
+[32m+[m	[32mtargetAnnualYield: string;[m
+[32m+[m	[32minvestmentTermYears: string;[m
+[32m+[m	[32minvestmentSummary: string;[m
+[32m+[m	[32mthumbnailImageUrl: string;[m
+[32m+[m
+[32m+[m	[32mtechnologyType: string;[m
+[32m+[m	[32mcapacityKwMw: string;[m
+[32m+[m	[32menergyOutputMwhYear: string;[m
+[32m+[m	[32massetLifetimeYears: string;[m
+[32m+[m	[32mmanufacturer: string;[m
+[32m+[m	[32mmodelSystemType: string;[m
+[32m+[m	[32msiteOwnership: SiteOwnership;[m
+[32m+[m	[32mlandStatus: string;[m
+[32m+[m	[32mgridConnectionStatus: GridConnectionStatus;[m
+[32m+[m
+[32m+[m	[32mepcContractor: string;[m
+[32m+[m	[32minstallationTimelineMonths: string;[m
+[32m+[m	[32mcommissioningDate: string;[m
+[32m+[m	[32mexpectedUtilisation: string;[m
+[32m+[m	[32mdegradationRate: string;[m
+[32m+[m	[32mwarrantyTermsYears: string;[m
+[32m+[m	[32momProvider: string;[m
+[32m+[m
+[32m+[m	[32mrevenueTypes: RevenueType[];[m
+[32m+[m	[32mprimaryCounterparty: string;[m
+[32m+[m	[32mcounterpartyType: CounterpartyType;[m
+[32m+[m	[32mcontractLengthYears: string;[m
+[32m+[m	[32mcontractPrice: string;[m
+[32m+[m	[32mescalation: string;[m
+[32m+[m	[32mprojectedAnnualRevenue: string;[m
+[32m+[m	[32moperatingCostsPerYear: string;[m
+[32m+[m	[32mnetYield: string;[m
+[32m+[m
+[32m+[m	[32museOfFunds: UseOfFunds;[m
+[32m+[m
+[32m+[m	[32mpermitsStatus: PermitStatus;[m
+[32m+[m	[32menvironmentalApprovals: string;[m
+[32m+[m	[32mgridApprovalStatus: GridConnectionStatus;[m
+[32m+[m	[32mconstructionRiskLevel: RiskLevel;[m
+[32m+[m	[32mcounterpartyRiskLevel: RiskLevel;[m
+[32m+[m	[32mmarketRiskLevel: RiskLevel;[m
+[32m+[m	[32mfixedPriceEpc: boolean;[m
+[32m+[m	[32minsuranceInPlace: boolean;[m
+[32m+[m	[32mhedgingStrategy: string;[m
+[32m+[m
+[32m+[m	[32mspvName: string;[m
+[32m+[m	[32mentityType: EntityType;[m
+[32m+[m	[32mlegalJurisdiction: string;[m
+[32m+[m	[32mmisStructure: boolean;[m
+[32m+[m	[32mtrusteeName: string;[m
+[32m+[m	[32mcustodian: string;[m
+[32m+[m	[32mtokenTypeSeries: string;[m
+[32m+[m	[32minvestorRights: InvestorRight[];[m
+[32m+[m	[32mdistributionFrequency: DistributionFrequency;[m
+[32m+[m
+[32m+[m	[32mdocumentsAndUploads: DocumentsUploads;[m
+[32m+[m	[32magreement: AgreementSection;[m
+[32m+[m[32m};[m
+[32m+[m
+[32m+[m[32mtype WorkflowStatus = 'Not Started' | 'In Progress' | 'Completed';[m
+[32m+[m[32mtype SubmittedProjectStatus =[m
+[32m+[m	[32m| 'draft'[m
+[32m+[m	[32m| 'under_review'[m
+[32m+[m	[32m| 'changes_requested'[m
+[32m+[m	[32m| 'approved';[m
+[32m+[m
+[32m+[m[32mtype SubmittedProjectRecord = {[m
+[32m+[m	[32mid: string;[m
+[32m+[m	[32mprojectName: string;[m
+[32m+[m	[32mdseType: DseType;[m
+[32m+[m	[32mprojectType: ProjectType;[m
+[32m+[m	[32mstage: ProjectStage;[m
+[32m+[m	[32mfundingGoal: string;[m
+[32m+[m	[32mminimumInvestment: string;[m
+[32m+[m	[32mlocation: string;[m
+[32m+[m	[32mjurisdiction: string;[m
+[32m+[m	[32mthumbnailImageUrl: string;[m
+[32m+[m	[32mprogressPercent: number;[m
+[32m+[m	[32mstatus: SubmittedProjectStatus;[m
+[32m+[m	[32msubmittedAt: string;[m
+[32m+[m	[32madminNotes: string;[m
+[32m+[m	[32mfullPayload: ProjectSetupForm;[m
+[32m+[m	[32magreementAccepted: boolean;[m
+[32m+[m	[32magreementAcceptedAt: string | null;[m
+[32m+[m	[32magreementVersion: string;[m
+[32m+[m	[32mworkflowStatus: Record<WorkflowKey, WorkflowStatus>;[m
+[32m+[m	[32mcompletedCount: number;[m
+[32m+[m	[32mtotalSections: number;[m
+[32m+[m[32m};[m
+[32m+[m
+[32m+[m[32mconst PROJECT_STORAGE_PREFIX = 'regenx_project_setup_draft_';[m
+[32m+[m[32mconst SUBMITTED_PROJECTS_KEY = 'regenx_submitted_projects';[m
+[32m+[m
+[32m+[m[32mconst workflowItems: WorkflowItem[] = [[m
+[32m+[m	[32m{[m
+[32m+[m		[32mkey: 'projectOverview',[m
+[32m+[m		[32mtitle: 'Project Overview',[m
+[32m+[m		[32mdescription:[m
+[32m+[m			[32m'Core identity, project classification, location, and investment summary.',[m
+[32m+[m	[32m},[m
+[32m+[m	[32m{[m
+[32m+[m		[32mkey: 'assetDescription',[m
+[32m+[m		[32mtitle: 'Asset Description',[m
+[32m+[m		[32mdescription:[m
+[32m+[m			[32m'Physical asset profile, infrastructure details, and site context.',[m
+[32m+[m	[32m},[m
+[32m+[m	[32m{[m
+[32m+[m		[32mkey: 'technicalDetails',[m
+[32m+[m		[32mtitle: 'Technical Details',[m
+[32m+[m		[32mdescription:[m
+[32m+[m			[32m'Engineering, commissioning, performance, and operational assumptions.',[m
+[32m+[m	[32m},[m
+[32m+[m	[32m{[m
+[32m+[m		[32mkey: 'commercialModel',[m
+[32m+[m		[32mtitle: 'Commercial Model',[m
+[32m+[m		[32mdescription:[m
+[32m+[m			[32m'Revenue model, counterparties, contract terms, and financial outputs.',[m
+[32m+[m	[32m},[m
+[32m+[m	[32m{[m
+[32m+[m		[32mkey: 'useOfFunds',[m
+[32m+[m		[32mtitle: 'Use of Funds',[m
+[32m+[m		[32mdescription: 'Structured funding allocation across key cost categories.',[m
+[32m+[m	[32m},[m
+[32m+[m	[32m{[m
+[32m+[m		[32mkey: 'complianceAndRisks',[m
+[32m+[m		[32mtitle: 'Compliance & Risks',[m
+[32m+[m		[32mdescription:[m
+[32m+[m			[32m'Permits, approvals, risk assessment, and mitigation controls.',[m
+[32m+[m	[32m},[m
+[32m+[m	[32m{[m
+[32m+[m		[32mkey: 'legalStructure',[m
+[32m+[m		[32mtitle: 'Legal / Token Structure',[m
+[32m+[m		[32mdescription:[m
+[32m+[m			[32m'SPV, entity design, investor rights, and distribution settings.',[m
+[32m+[m	[32m},[m
+[32m+[m	[32m{[m
+[32m+[m		[32mkey: 'documentsAndUploads',[m
+[32m+[m		[32mtitle: 'Documents & Uploads',[m
+[32m+[m		[32mdescription:[m
+[32m+[m			[32m'Required URLs or file references for core investment documents.',[m
+[32m+[m	[32m},[m
+[32m+[m	[32m{[m
+[32m+[m		[32mkey: 'agreement',[m
+[32m+[m		[32mtitle: 'Agreement',[m
+[32m+[m		[32mdescription:[m
+[32m+[m			[32m'Final gate, confirmations, and signatory details before submission.',[m
+[32m+[m	[32m},[m
+[32m+[m[32m];[m
+[32m+[m
+[32m+[m[32mconst defaultForm: ProjectSetupForm = {[m
+[32m+[m	[32mtokenName: '',[m
+[32m+[m	[32mtokenSymbol: '',[m
+[32m+[m	[32mtotalSupply: '',[m
+[32m+[m	[32mtokenPrice: '',[m
+[32m+[m	[32mprojectName: '',[m
+[32m+[m	[32mprojectType: 'Solar',[m
+[32m+[m	[32mdseType: 'Operating DSE',[m
+[32m+[m	[32mstage: 'Development',[m
+[32m+[m	[32mfullAddress: '',[m
+[32m+[m	[32mjurisdiction: 'Australia',[m
+[32m+[m	[32mfundingGoal: '',[m
+[32m+[m	[32mtotalProjectCapex: '',[m
+[32m+[m	[32mminimumInvestment: '',[m
+[32m+[m	[32mtargetIrr: '',[m
+[32m+[m	[32mtargetAnnualYield: '',[m
+[32m+[m	[32minvestmentTermYears: '',[m
+[32m+[m	[32minvestmentSummary: '',[m
+[32m+[m	[32mthumbnailImageUrl: '',[m
+[32m+[m
+[32m+[m	[32mtechnologyType: '',[m
+[32m+[m	[32mcapacityKwMw: '',[m
+[32m+[m	[32menergyOutputMwhYear: '',[m
+[32m+[m	[32massetLifetimeYears: '',[m
+[32m+[m	[32mmanufacturer: '',[m
+[32m+[m	[32mmodelSystemType: '',[m
+[32m+[m	[32msiteOwnership: 'Owned',[m
+[32m+[m	[32mlandStatus: '',[m
+[32m+[m	[32mgridConnectionStatus: 'Not started',[m
+[32m+[m
+[32m+[m	[32mepcContractor: '',[m
+[32m+[m	[32minstallationTimelineMonths: '',[m
+[32m+[m	[32mcommissioningDate: '',[m
+[32m+[m	[32mexpectedUtilisation: '',[m
+[32m+[m	[32mdegradationRate: '',[m
+[32m+[m	[32mwarrantyTermsYears: '',[m
+[32m+[m	[32momProvider: '',[m
+[32m+[m
+[32m+[m	[32mrevenueTypes: [],[m
+[32m+[m	[32mprimaryCounterparty: '',[m
+[32m+[m	[32mcounterpartyType: 'Corporate',[m
+[32m+[m	[32mcontractLengthYears: '',[m
+[32m+[m	[32mcontractPrice: '',[m
+[32m+[m	[32mescalation: '',[m
+[32m+[m	[32mprojectedAnnualRevenue: '',[m
+[32m+[m	[32moperatingCostsPerYear: '',[m
+[32m+[m	[32mnetYield: '',[m
+[32m+[m
+[32m+[m	[32museOfFunds: {[m
+[32m+[m		[32mequipmentCost: '',[m
+[32m+[m		[32minstallationCost: '',[m
+[32m+[m		[32mgridConnectionCost: '',[m
+[32m+[m		[32mdevelopmentCosts: '',[m
+[32m+[m		[32mcontingency: '',[m
+[32m+[m		[32mregenxFees: '',[m
+[32m+[m	[32m},[m
+[32m+[m
+[32m+[m	[32mpermitsStatus: 'Pending',[m
+[32m+[m	[32menvironmentalApprovals: '',[m
+[32m+[m	[32mgridApprovalStatus: 'Pending',[m
+[32m+[m	[32mconstructionRiskLevel: 'Medium',[m
+[32m+[m	[32mcounterpartyRiskLevel: 'Medium',[m
+[32m+[m	[32mmarketRiskLevel: 'Medium',[m
+[32m+[m	[32mfixedPriceEpc: false,[m
+[32m+[m	[32minsuranceInPlace: false,[m
+[32m+[m	[32mhedgingStrategy: '',[m
+[32m+[m
+[32m+[m	[32mspvName: '',[m
+[32m+[m	[32mentityType: 'Company',[m
+[32m+[m	[32mlegalJurisdiction: 'Australia',[m
+[32m+[m	[32mmisStructure: false,[m
+[32m+[m	[32mtrusteeName: '',[m
+[32m+[m	[32mcustodian: '',[m
+[32m+[m	[32mtokenTypeSeries: '',[m
+[32m+[m	[32minvestorRights: [],[m
+[32m+[m	[32mdistributionFrequency: 'Quarterly',[m
+[32m+[m
+[32m+[m	[32mdocumentsAndUploads: {[m
+[32m+[m		[32minformationMemorandum: '',[m
+[32m+[m		[32mfinancialModel: '',[m
+[32m+[m		[32mppaRevenueContracts: '',[m
+[32m+[m		[32mengineeringReport: '',[m
+[32m+[m		[32mlegalDocs: '',[m
+[32m+[m	[32m},[m
+[32m+[m
+[32m+[m	[32magreement: {[m
+[32m+[m		[32mplatformAgreementAccepted: false,[m
+[32m+[m		[32mdeveloperDeclarationAccepted: false,[m
+[32m+[m		[32mofferingTermsAccepted: false,[m
+[32m+[m		[32msignatoryFullName: '',[m
+[32m+[m		[32msignatoryTitle: '',[m
+[32m+[m		[32msignatoryAuthority: '',[m
+[32m+[m		[32msignatoryDate: '',[m
+[32m+[m	[32m},[m
+[32m+[m[32m};[m
+[32m+[m
+[32m+[m[32mconst toNumber = (value: string) => {[m
+[32m+[m	[32mconst cleaned = String(value ?? '')[m
+[32m+[m		[32m.replace(/,/g, '')[m
+[32m+[m		[32m.trim();[m
+[32m+[m	[32mif (!cleaned) return 0;[m
+[32m+[m	[32mconst num = Number(cleaned);[m
+[32m+[m	[32mreturn Number.isFinite(num) ? num : 0;[m
+[32m+[m[32m};[m
+[32m+[m
+[32m+[m[32mconst useOfFundsTotal = (useOfFunds: UseOfFunds) =>[m
+[32m+[m	[32mtoNumber(useOfFunds.equipmentCost) +[m
+[32m+[m	[32mtoNumber(useOfFunds.installationCost) +[m
+[32m+[m	[32mtoNumber(useOfFunds.gridConnectionCost) +[m
+[32m+[m	[32mtoNumber(useOfFunds.developmentCosts) +[m
+[32m+[m	[32mtoNumber(useOfFunds.contingency) +[m
+[32m+[m	[32mtoNumber(useOfFunds.regenxFees);[m
+[32m+[m
+[32m+[m[32mconst getWorkflowStatus = ([m
+[32m+[m	[32mkey: WorkflowKey,[m
+[32m+[m	[32mform: ProjectSetupForm,[m
+[32m+[m[32m): WorkflowStatus => {[m
+[32m+[m	[32mswitch (key) {[m
+[32m+[m		[32mcase 'projectOverview': {[m
+[32m+[m			[32mconst required = [[m
+[32m+[m				[32mform.projectName,[m
+[32m+[m				[32mform.projectType,[m
+[32m+[m				[32mform.dseType,[m
+[32m+[m				[32mform.stage,[m
+[32m+[m				[32mform.fullAddress,[m
+[32m+[m				[32mform.jurisdiction,[m
+[32m+[m				[32mform.fundingGoal,[m
+[32m+[m				[32mform.totalProjectCapex,[m
+[32m+[m				[32mform.minimumInvestment,[m
+[32m+[m				[32mform.targetIrr,[m
+[32m+[m				[32mform.targetAnnualYield,[m
+[32m+[m				[32mform.investmentTermYears,[m
+[32m+[m				[32mform.investmentSummary,[m
+[32m+[m				[32mform.thumbnailImageUrl,[m
+[32m+[m			[32m];[m
+[32m+[m			[32mconst filled = required.filter((v) => String(v).trim()).length;[m
+[32m+[m			[32mif (filled === 0) return 'Not Started';[m
+[32m+[m			[32mif (filled === required.length) return 'Completed';[m
+[32m+[m			[32mreturn 'In Progress';[m
+[32m+[m		[32m}[m
+[32m+[m
+[32m+[m		[32mcase 'assetDescription': {[m
+[32m+[m			[32mconst required = [[m
+[32m+[m				[32mform.technologyType,[m
+[32m+[m				[32mform.capacityKwMw,[m
+[32m+[m				[32mform.energyOutputMwhYear,[m
+[32m+[m				[32mform.assetLifetimeYears,[m
+[32m+[m				[32mform.manufacturer,[m
+[32m+[m				[32mform.modelSystemType,[m
+[32m+[m				[32mform.siteOwnership,[m
+[32m+[m				[32mform.landStatus,[m
+[32m+[m				[32mform.gridConnectionStatus,[m
+[32m+[m			[32m];[m
+[32m+[m			[32mconst filled = required.filter((v) => String(v).trim()).length;[m
+[32m+[m			[32mif (filled === 0) return 'Not Started';[m
+[32m+[m			[32mif (filled === required.length) return 'Completed';[m
+[32m+[m			[32mreturn 'In Progress';[m
+[32m+[m		[32m}[m
+[32m+[m
+[32m+[m		[32mcase 'technicalDetails': {[m
+[32m+[m			[32mconst required = [[m
+[32m+[m				[32mform.epcContractor,[m
+[32m+[m				[32mform.installationTimelineMonths,[m
+[32m+[m				[32mform.commissioningDate,[m
+[32m+[m				[32mform.expectedUtilisation,[m
+[32m+[m				[32mform.degradationRate,[m
+[32m+[m				[32mform.warrantyTermsYears,[m
+[32m+[m				[32mform.omProvider,[m
+[32m+[m			[32m];[m
+[32m+[m			[32mconst filled = required.filter((v) => String(v).trim()).length;[m
+[32m+[m			[32mif (filled === 0) return 'Not Started';[m
+[32m+[m			[32mif (filled === required.length) return 'Completed';[m
+[32m+[m			[32mreturn 'In Progress';[m
+[32m+[m		[32m}[m
+[32m+[m
+[32m+[m		[32mcase 'commercialModel': {[m
+[32m+[m			[32mconst required = [[m
+[32m+[m				[32mform.primaryCounterparty,[m
+[32m+[m				[32mform.counterpartyType,[m
+[32m+[m				[32mform.contractLengthYears,[m
+[32m+[m				[32mform.contractPrice,[m
+[32m+[m				[32mform.escalation,[m
+[32m+[m				[32mform.projectedAnnualRevenue,[m
+[32m+[m				[32mform.operatingCostsPerYear,[m
+[32m+[m				[32mform.netYield,[m
+[32m+[m			[32m];[m
+[32m+[m			[32mconst filled =[m
+[32m+[m				[32mrequired.filter((v) => String(v).trim()).length +[m
+[32m+[m				[32m(form.revenueTypes.length > 0 ? 1 : 0);[m
+[32m+[m			[32mif (filled === 0) return 'Not Started';[m
+[32m+[m			[32mif (filled === required.length + 1) return 'Completed';[m
+[32m+[m			[32mreturn 'In Progress';[m
+[32m+[m		[32m}[m
+[32m+[m
+[32m+[m		[32mcase 'useOfFunds': {[m
+[32m+[m			[32mconst values = Object.values(form.useOfFunds);[m
+[32m+[m			[32mconst filled = values.filter((v) => String(v).trim()).length;[m
+[32m+[m			[32mif (filled === 0) return 'Not Started';[m
+[32m+[m			[32mconst totalMatches =[m
+[32m+[m				[32museOfFundsTotal(form.useOfFunds) === toNumber(form.fundingGoal);[m
+[32m+[m			[32mif (filled === values.length && totalMatches) return 'Completed';[m
+[32m+[m			[32mreturn 'In Progress';[m
+[32m+[m		[32m}[m
+[32m+[m
+[32m+[m		[32mcase 'complianceAndRisks': {[m
+[32m+[m			[32mconst required = [[m
+[32m+[m				[32mform.permitsStatus,[m
+[32m+[m				[32mform.environmentalApprovals,[m
+[32m+[m				[32mform.gridApprovalStatus,[m
+[32m+[m				[32mform.constructionRiskLevel,[m
+[32m+[m				[32mform.counterpartyRiskLevel,[m
+[32m+[m				[32mform.marketRiskLevel,[m
+[32m+[m				[32mform.hedgingStrategy,[m
+[32m+[m			[32m];[m
+[32m+[m			[32mconst filled = required.filter((v) => String(v).trim()).length;[m
+[32m+[m			[32mif (filled === 0 && !form.fixedPriceEpc && !form.insuranceInPlace)[m
+[32m+[m				[32mreturn 'Not Started';[m
+[32m+[m			[32mif (filled === required.length) return 'Completed';[m
+[32m+[m			[32mreturn 'In Progress';[m
+[32m+[m		[32m}[m
+[32m+[m
+[32m+[m		[32mcase 'legalStructure': {[m
+[32m+[m			[32mconst required = [[m
+[32m+[m				[32mform.spvName,[m
+[32m+[m				[32mform.entityType,[m
+[32m+[m				[32mform.legalJurisdiction,[m
+[32m+[m				[32mform.trusteeName,[m
+[32m+[m				[32mform.custodian,[m
+[32m+[m				[32mform.tokenTypeSeries,[m
+[32m+[m				[32mform.distributionFrequency,[m
+[32m+[m			[32m];[m
+[32m+[m			[32mconst filled =[m
+[32m+[m				[32mrequired.filter((v) => String(v).trim()).length +[m
+[32m+[m				[32m(form.investorRights.length > 0 ? 1 : 0);[m
+[32m+[m			[32mif (filled === 0 && !form.misStructure) return 'Not Started';[m
+[32m+[m			[32mif (filled === required.length + 1) return 'Completed';[m
+[32m+[m			[32mreturn 'In Progress';[m
+[32m+[m		[32m}[m
+[32m+[m
+[32m+[m		[32mcase 'documentsAndUploads': {[m
+[32m+[m			[32mconst required = Object.values(form.documentsAndUploads);[m
+[32m+[m			[32mconst filled = required.filter((v) => String(v).trim()).length;[m
+[32m+[m			[32mif (filled === 0) return 'Not Started';[m
+[32m+[m			[32mif (filled === required.length) return 'Completed';[m
+[32m+[m			[32mreturn 'In Progress';[m
+[32m+[m		[32m}[m
+[32m+[m
+[32m+[m		[32mcase 'agreement': {[m
+[32m+[m			[32mconst filled =[m
+[32m+[m				[32mNumber(form.agreement.platformAgreementAccepted) +[m
+[32m+[m				[32mNumber(form.agreement.developerDeclarationAccepted) +[m
+[32m+[m				[32mNumber(form.agreement.offeringTermsAccepted) +[m
+[32m+[m				[32mNumber(Boolean(form.agreement.signatoryFullName.trim())) +[m
+[32m+[m				[32mNumber(Boolean(form.agreement.signatoryTitle.trim())) +[m
+[32m+[m				[32mNumber(Boolean(form.agreement.signatoryAuthority.trim())) +[m
+[32m+[m				[32mNumber(Boolean(form.agreement.signatoryDate.trim()));[m
+[32m+[m
+[32m+[m			[32mif (filled === 0) return 'Not Started';[m
+[32m+[m			[32mif (filled === 7) return 'Completed';[m
+[32m+[m			[32mreturn 'In Progress';[m
+[32m+[m		[32m}[m
+[32m+[m
+[32m+[m		[32mdefault:[m
+[32m+[m			[32mreturn 'Not Started';[m
+[32m+[m	[32m}[m
+[32m+[m[32m};[m
+[32m+[m
+[32m+[m[32mconst getWorkflowClasses = (status: WorkflowStatus, isActive: boolean) => {[m
+[32m+[m	[32mif (isActive) return 'border-pink-300 bg-pink-50';[m
+[32m+[m	[32mif (status === 'Completed') return 'border-emerald-200 bg-emerald-50';[m
+[32m+[m	[32mif (status === 'In Progress') return 'border-pink-200 bg-pink-50';[m
+[32m+[m	[32mreturn 'border-slate-200 bg-white';[m
+[32m+[m[32m};[m
+[32m+[m
+[32m+[m[32mexport default function ProjectSetup() {[m
+[32m+[m	[32mconst navigate = useNavigate();[m
+[32m+[m	[32mconst [searchParams] = useSearchParams();[m
+[32m+[m	[32mconst draftId = searchParams.get('draft');[m
+[32m+[m
+[32m+[m	[32museEffect(() => {[m
+[32m+[m		[32mif (draftId) {[m
+[32m+[m			[32mlocalStorage.setItem('regenx_last_project_setup_draft', draftId);[m
+[32m+[m		[32m}[m
+[32m+[m	[32m}, [draftId]);[m
+[32m+[m
+[32m+[m	[32museEffect(() => {[m
+[32m+[m		[32mif (draftId) {[m
+[32m+[m			[32mlocalStorage.setItem('regenx_last_project_setup_draft', draftId);[m
+[32m+[m		[32m}[m
+[32m+[m	[32m}, [draftId]);[m
+[32m+[m	[32mconst LAST_DRAFT_KEY = 'regenx_last_project_setup_draft';[m
+[32m+[m
+[32m+[m	[32mconst storageKey = `${PROJECT_STORAGE_PREFIX}${draftId || 'default'}`;[m
+[32m+[m	[32mconst [activeKey, setActiveKey] = useState<WorkflowKey>('projectOverview');[m
+[32m+[m	[32mconst [form, setForm] = useState<ProjectSetupForm>(defaultForm);[m
+[32m+[m	[32mconst [agreementsAccepted, setAgreementsAccepted] = useState(false);[m
+[32m+[m	[32mconst [developerUnlocked] = useState(true);[m
+[32m+[m	[32mconst [saveMessage, setSaveMessage] = useState('Draft saved locally');[m
+[32m+[m
+[32m+[m	[32museEffect(() => {[m
+[32m+[m		[32mconst rememberedDraftId = localStorage.getItem(LAST_DRAFT_KEY);[m
+[32m+[m
+[32m+[m		[32mif (!draftId && rememberedDraftId) {[m
+[32m+[m			[32mnavigate(`/project-setup?draft=${rememberedDraftId}`, { replace: true });[m
+[32m+[m			[32mreturn;[m
+[32m+[m		[32m}[m
+[32m+[m
+[32m+[m		[32mif (draftId) {[m
+[32m+[m			[32mlocalStorage.setItem(LAST_DRAFT_KEY, draftId);[m
+[32m+[m		[32m}[m
+[32m+[m	[32m}, [draftId, navigate]);[m
+[32m+[m
+[32m+[m	[32museEffect(() => {[m
+[32m+[m		[32mif (!draftId) return;[m
+[32m+[m
+[32m+[m		[32mtry {[m
+[32m+[m			[32mconst savedDraft = localStorage.getItem(storageKey);[m
+[32m+[m			[32mif (!savedDraft) return;[m
+[32m+[m
+[32m+[m			[32mconst parsedProject = JSON.parse(savedDraft);[m
+[32m+[m
+[32m+[m			[32msetForm({[m
+[32m+[m				[32m...defaultForm,[m
+[32m+[m				[32m...parsedProject,[m
+[32m+[m				[32museOfFunds: {[m
+[32m+[m					[32m...defaultForm.useOfFunds,[m
+[32m+[m					[32m...(parsedProject.useOfFunds ?? {}),[m
+[32m+[m				[32m},[m
+[32m+[m				[32mdocumentsAndUploads: {[m
+[32m+[m					[32m...defaultForm.documentsAndUploads,[m
+[32m+[m					[32m...(parsedProject.documentsAndUploads ?? {}),[m
+[32m+[m				[32m},[m
+[32m+[m				[32magreement: {[m
+[32m+[m					[32m...defaultForm.agreement,[m
+[32m+[m					[32m...(parsedProject.agreement ?? {}),[m
+[32m+[m				[32m},[m
+[32m+[m			[32m});[m
+[32m+[m		[32m} catch (error) {[m
+[32m+[m			[32mconsole.error('Failed to load project setup draft', error);[m
+[32m+[m		[32m}[m
+[32m+[m	[32m}, [draftId, storageKey]);[m
+[32m+[m
+[32m+[m	[32museEffect(() => {[m
+[32m+[m		[32mtry {[m
+[32m+[m			[32mlocalStorage.setItem(storageKey, JSON.stringify(form));[m
+[32m+[m		[32m} catch (error) {[m
+[32m+[m			[32mconsole.error('Failed to save project setup draft', error);[m
+[32m+[m		[32m}[m
+[32m+[m	[32m}, [form, storageKey]);[m
+[32m+[m
+[32m+[m	[32mconst handleSaveDraft = () => {[m
+[32m+[m		[32mtry {[m
+[32m+[m			[32mlocalStorage.setItem(storageKey, JSON.stringify(form));[m
+[32m+[m			[32msetSaveMessage('Draft saved');[m
+[32m+[m			[32mwindow.setTimeout(() => setSaveMessage('Draft saved locally'), 2000);[m
+[32m+[m		[32m} catch (error) {[m
+[32m+[m			[32mconsole.error('Failed to save project setup draft', error);[m
+[32m+[m			[32msetSaveMessage('Save failed');[m
+[32m+[m			[32mwindow.setTimeout(() => setSaveMessage('Draft saved locally'), 2000);[m
+[32m+[m		[32m}[m
+[32m+[m	[32m};[m
+[32m+[m
+[32m+[m	[32mconst handleFieldChange =[m
+[32m+[m		[32m(field: keyof ProjectSetupForm) =>[m
+[32m+[m		[32m([m
+[32m+[m			[32mevent: React.ChangeEvent<[m
+[32m+[m				[32mHTMLInputElement | HTMLTextAreaElement | HTMLSelectElement[m
+[32m+[m			[32m>,[m
+[32m+[m		[32m) => {[m
+[32m+[m			[32mconst value = event.target.value;[m
+[32m+[m			[32msetForm((prev) => ({[m
+[32m+[m				[32m...prev,[m
+[32m+[m				[32m[field]: value,[m
+[32m+[m			[32m}));[m
+[32m+[m		[32m};[m
+[32m+[m
+[32m+[m	[32mconst handleNestedChange =[m
+[32m+[m		[32m<[m
+[32m+[m			[32mT extends keyof Pick<[m
+[32m+[m				[32mProjectSetupForm,[m
+[32m+[m				[32m'useOfFunds' | 'documentsAndUploads' | 'agreement'[m
+[32m+[m			[32m>,[m
+[32m+[m		[32m>([m
+[32m+[m			[32mparent: T,[m
+[32m+[m			[32mfield: keyof ProjectSetupForm[T],[m
+[32m+[m		[32m) =>[m
+[32m+[m		[32m(event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {[m
+[32m+[m			[32mconst value = event.target.value;[m
+[32m+[m			[32msetForm((prev) => ({[m
+[32m+[m				[32m...prev,[m
+[32m+[m				[32m[parent]: {[m
+[32m+[m					[32m...prev[parent],[m
+[32m+[m					[32m[field]: value,[m
+[32m+[m				[32m},[m
+[32m+[m			[32m}));[m
+[32m+[m		[32m};[m
+[32m+[m
+[32m+[m	[32mconst handleCheckboxChange =[m
+[32m+[m		[32m(field: keyof ProjectSetupForm) =>[m
+[32m+[m		[32m(event: React.ChangeEvent<HTMLInputElement>) => {[m
+[32m+[m			[32msetForm((prev) => ({[m
+[32m+[m				[32m...prev,[m
+[32m+[m				[32m[field]: event.target.checked,[m
+[32m+[m			[32m}));[m
+[32m+[m		[32m};[m
+[32m+[m
+[32m+[m	[32mconst handleMultiSelectToggle = <T extends RevenueType | InvestorRight>([m
+[32m+[m		[32mfield: 'revenueTypes' | 'investorRights',[m
+[32m+[m		[32mvalue: T,[m
+[32m+[m	[32m) => {[m
+[32m+[m		[32msetForm((prev) => {[m
+[32m+[m			[32mconst current = prev[field] as T[];[m
+[32m+[m			[32mconst exists = current.includes(value);[m
+[32m+[m			[32mreturn {[m
+[32m+[m				[32m...prev,[m
+[32m+[m				[32m[field]: exists[m
+[32m+[m					[32m? current.filter((item) => item !== value)[m
+[32m+[m					[32m: [...current, value],[m
+[32m+[m			[32m};[m
+[32m+[m		[32m});[m
+[32m+[m	[32m};[m
+[32m+[m
+[32m+[m	[32mconst clearCurrentDraft = () => {[m
+[32m+[m		[32mlocalStorage.removeItem(storageKey);[m
+[32m+[m		[32msetForm(defaultForm);[m
+[32m+[m		[32msetActiveKey('projectOverview');[m
+[32m+[m	[32m};[m
+[32m+[m
+[32m+[m	[32mconst handleClearDraft = () => {[m
+[32m+[m		[32mclearCurrentDraft();[m
+[32m+[m		[32msetSaveMessage('Draft cleared');[m
+[32m+[m		[32mwindow.setTimeout(() => setSaveMessage('Draft saved locally'), 2000);[m
+[32m+[m	[32m};[m
+[32m+[m
+[32m+[m	[32mconst goToNextSection = () => {[m
+[32m+[m		[32mconst currentIndex = workflowItems.findIndex([m
+[32m+[m			[32m(item) => item.key === activeKey,[m
+[32m+[m		[32m);[m
+[32m+[m		[32mif (currentIndex >= 0 && currentIndex < workflowItems.length - 1) {[m
+[32m+[m			[32msetActiveKey(workflowItems[currentIndex + 1].key);[m
+[32m+[m		[32m}[m
+[32m+[m	[32m};[m
+[32m+[m
+[32m+[m	[32mconst isLastSection =[m
+[32m+[m		[32mworkflowItems[workflowItems.length - 1].key === activeKey;[m
+[32m+[m
+[32m+[m	[32mconst workflowStatus = workflowItems.reduce((acc, item) => {[m
+[32m+[m		[32macc[item.key] = getWorkflowStatus(item.key, form);[m
+[32m+[m		[32mreturn acc;[m
+[32m+[m	[32m}, {} as Record<WorkflowKey, WorkflowStatus>);[m
+[32m+[m
+[32m+[m	[32mconst completedCount = workflowItems.filter([m
+[32m+[m		[32m(item) => workflowStatus[item.key] === 'Completed',[m
+[32m+[m	[32m).length;[m
+[32m+[m
+[32m+[m	[32mconst progressPercent = Math.round([m
+[32m+[m		[32m(completedCount / workflowItems.length) * 100,[m
+[32m+[m	[32m);[m
+[32m+[m
+[32m+[m	[32mconst useOfFundsSum = useOfFundsTotal(form.useOfFunds);[m
+[32m+[m	[32mconst fundingGoalNumber = toNumber(form.fundingGoal);[m
+[32m+[m	[32mconst useOfFundsMatchesGoal = useOfFundsSum === fundingGoalNumber;[m
+[32m+[m
+[32m+[m	[32mconst canSubmitProject =[m
+[32m+[m		[32mcompletedCount === workflowItems.length &&[m
+[32m+[m		[32mform.agreement.platformAgreementAccepted &&[m
+[32m+[m		[32mform.agreement.developerDeclarationAccepted &&[m
+[32m+[m		[32mform.agreement.offeringTermsAccepted &&[m
+[32m+[m		[32mBoolean(form.agreement.signatoryFullName.trim()) &&[m
+[32m+[m		[32mBoolean(form.agreement.signatoryTitle.trim()) &&[m
+[32m+[m		[32mBoolean(form.agreement.signatoryAuthority.trim()) &&[m
+[32m+[m		[32mBoolean(form.agreement.signatoryDate.trim());[m
+[32m+[m
+[32m+[m	[32mconst handleSubmitProject = () => {[m
+[32m+[m		[32mif (!canSubmitProject || !agreementsAccepted) return;[m
+[32m+[m
+[32m+[m		[32mconst submittedProject: SubmittedProjectRecord = {[m
+[32m+[m			[32mid: `project_${Date.now()}`,[m
+[32m+[m			[32mprojectName: form.projectName || 'Untitled Project',[m
+[32m+[m			[32mdseType: form.dseType,[m
+[32m+[m			[32mprojectType: form.projectType,[m
+[32m+[m			[32mstage: form.stage,[m
+[32m+[m			[32mfundingGoal: form.fundingGoal,[m
+[32m+[m			[32mminimumInvestment: form.minimumInvestment,[m
+[32m+[m			[32mlocation: form.fullAddress,[m
+[32m+[m			[32mjurisdiction: form.jurisdiction,[m
+[32m+[m			[32mthumbnailImageUrl: form.thumbnailImageUrl,[m
+[32m+[m			[32mprogressPercent,[m
+[32m+[m			[32mstatus: 'under_review',[m
+[32m+[m			[32msubmittedAt: new Date().toISOString(),[m
+[32m+[m			[32madminNotes: '',[m
+[32m+[m			[32mfullPayload: form,[m
+[32m+[m			[32magreementAccepted: agreementsAccepted,[m
+[32m+[m			[32magreementAcceptedAt: agreementsAccepted ? new Date().toISOString() : null,[m
+[32m+[m			[32magreementVersion: 'v1.0',[m
+[32m+[m			[32mworkflowStatus,[m
+[32m+[m			[32mcompletedCount,[m
+[32m+[m			[32mtotalSections: workflowItems.length,[m
+[32m+[m		[32m};[m
+[32m+[m
+[32m+[m		[32mtry {[m
+[32m+[m			[32mconst existingRaw = localStorage.getItem(SUBMITTED_PROJECTS_KEY);[m
+[32m+[m			[32mconst existingProjects: SubmittedProjectRecord[] = existingRaw[m
+[32m+[m				[32m? JSON.parse(existingRaw)[m
+[32m+[m				[32m: [];[m
+[32m+[m			[32mlocalStorage.setItem([m
+[32m+[m				[32mSUBMITTED_PROJECTS_KEY,[m
+[32m+[m				[32mJSON.stringify([submittedProject, ...existingProjects]),[m
+[32m+[m			[32m);[m
+[32m+[m
+[32m+[m			[32mlocalStorage.removeItem(storageKey);[m
+[32m+[m			[32msetForm(defaultForm);[m
+[32m+[m			[32msetActiveKey('projectOverview');[m
+[32m+[m			[32msetSaveMessage('Project submitted and moved to Under Review');[m
+[32m+[m			[32mwindow.setTimeout(() => setSaveMessage('Draft saved locally'), 3000);[m
+[32m+[m		[32m} catch (error) {[m
+[32m+[m			[32mconsole.error('Failed to submit project setup', error);[m
+[32m+[m			[32msetSaveMessage('Submission failed');[m
+[32m+[m			[32mwindow.setTimeout(() => setSaveMessage('Draft saved locally'), 3000);[m
+[32m+[m		[32m}[m
+[32m+[m	[32m};[m
+[32m+[m
+[32m+[m	[32mconst inputClass =[m
+[32m+[m		[32m'w-full rounded-2xl border border-slate-300 px-4 py-3 text-base text-[#111827] outline-none transition focus:border-[#1D4ED8] focus:ring-2 focus:ring-[#DBEAFE]';[m
+[32m+[m
+[32m+[m	[32mif (!developerUnlocked) {[m
+[32m+[m		[32mreturn ([m
+[32m+[m			[32m<div>[m
+[32m+[m				[32m<div className="w-full">[m
+[32m+[m					[32m<div className="rounded-3xl border border-amber-200 bg-amber-50 p-8 shadow-sm">[m
+[32m+[m						[32m<h1 className="text-4xl font-semibold text-[#111827]">[m
+[32m+[m							[32mProject Setup[m
+[32m+[m						[32m</h1>[m
+[32m+[m						[32m<p className="mt-4 text-base text-amber-900">[m
+[32m+[m							[32mProject Setup is locked until Developer Setup has been completed[m
+[32m+[m							[32mand submitted.[m
+[32m+[m						[32m</p>[m
+[32m+[m					[32m</div>[m
+[32m+[m				[32m</div>[m
+[32m+[m			[32m</div>[m
+[32m+[m		[32m);[m
+[32m+[m	[32m}[m
+[32m+[m
+[32m+[m	[32mconst renderContinueButton = () => ([m
+[32m+[m		[32m<div className="mt-8 flex justify-end">[m
+[32m+[m			[32m<button[m
+[32m+[m				[32mtype="button"[m
+[32m+[m				[32monClick={goToNextSection}[m
+[32m+[m				[32mdisabled={isLastSection}[m
+[32m+[m				[32mclassName={`rounded-2xl px-6 py-3 text-sm font-semibold text-white transition ${[m
+[32m+[m					[32misLastSection[m
+[32m+[m						[32m? 'cursor-not-allowed bg-slate-300'[m
+[32m+[m						[32m: 'bg-[#1D4ED8] hover:bg-[#1E40AF]'[m
+[32m+[m				[32m}`}[m
+[32m+[m			[32m>[m
+[32m+[m				[32m{isLastSection ? 'Final Section' : 'Continue'}[m
+[32m+[m			[32m</button>[m
+[32m+[m		[32m</div>[m
+[32m+[m	[32m);[m
+[32m+[m
+[32m+[m	[32mconst renderProjectOverview = () => ([m
+[32m+[m		[32m<>[m
+[32m+[m			[32m<h2 className="text-4xl font-semibold text-[#111827]">[m
+[32m+[m				[32mProject Overview[m
+[32m+[m			[32m</h2>[m
+[32m+[m			[32m<p className="mt-2 text-base text-[#6B7280]">[m
+[32m+[m				[32mCore identity, project classification, location, and investment summary.[m
+[32m+[m			[32m</p>[m
+[32m+[m
+[32m+[m			[32m<div className="mt-8 grid grid-cols-1 gap-5 md:grid-cols-2">[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mProject Name[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<input[m
+[32m+[m						[32mvalue={form.projectName}[m
+[32m+[m						[32monChange={handleFieldChange('projectName')}[m
+[32m+[m						[32mplaceholder="Project name"[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m/>[m
+[32m+[m				[32m</div>[m
+[32m+[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mProject Type[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<select[m
+[32m+[m						[32mvalue={form.projectType}[m
+[32m+[m						[32monChange={handleFieldChange('projectType')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m>[m
+[32m+[m						[32m<option value="Solar">Solar</option>[m
+[32m+[m						[32m<option value="Battery">Battery</option>[m
+[32m+[m						[32m<option value="Wind">Wind</option>[m
+[32m+[m						[32m<option value="Hybrid">Hybrid</option>[m
+[32m+[m					[32m</select>[m
+[32m+[m				[32m</div>[m
+[32m+[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mDSE Type[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<select[m
+[32m+[m						[32mvalue={form.dseType}[m
+[32m+[m						[32monChange={handleFieldChange('dseType')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m>[m
+[32m+[m						[32m<option value="Operating DSE">Operating DSE</option>[m
+[32m+[m						[32m<option value="Development DSE">Development DSE</option>[m
+[32m+[m						[32m<option value="Hybrid DSE">Hybrid DSE</option>[m
+[32m+[m					[32m</select>[m
+[32m+[m				[32m</div>[m
+[32m+[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mStage[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<select[m
+[32m+[m						[32mvalue={form.stage}[m
+[32m+[m						[32monChange={handleFieldChange('stage')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m>[m
+[32m+[m						[32m<option value="Development">Development</option>[m
+[32m+[m						[32m<option value="Construction">Construction</option>[m
+[32m+[m						[32m<option value="Operating">Operating</option>[m
+[32m+[m					[32m</select>[m
+[32m+[m				[32m</div>[m
+[32m+[m
+[32m+[m				[32m<div className="md:col-span-2">[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mLocation (Full Address)[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<input[m
+[32m+[m						[32mvalue={form.fullAddress}[m
+[32m+[m						[32monChange={handleFieldChange('fullAddress')}[m
+[32m+[m						[32mplaceholder="Full project address"[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m/>[m
+[32m+[m				[32m</div>[m
+[32m+[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mJurisdiction[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<select[m
+[32m+[m						[32mvalue={form.jurisdiction}[m
+[32m+[m						[32monChange={handleFieldChange('jurisdiction')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m>[m
+[32m+[m						[32m<option value="Australia">Australia</option>[m
+[32m+[m						[32m<option value="New South Wales">New South Wales</option>[m
+[32m+[m						[32m<option value="Victoria">Victoria</option>[m
+[32m+[m						[32m<option value="Queensland">Queensland</option>[m
+[32m+[m						[32m<option value="South Australia">South Australia</option>[m
+[32m+[m						[32m<option value="Western Australia">Western Australia</option>[m
+[32m+[m						[32m<option value="Tasmania">Tasmania</option>[m
+[32m+[m						[32m<option value="ACT">ACT</option>[m
+[32m+[m						[32m<option value="Northern Territory">Northern Territory</option>[m
+[32m+[m					[32m</select>[m
+[32m+[m				[32m</div>[m
+[32m+[m			[32m</div>[m
+[32m+[m
+[32m+[m			[32m<div className="mt-8 grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mFunding Goal ($)[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<input[m
+[32m+[m						[32mvalue={form.fundingGoal}[m
+[32m+[m						[32monChange={handleFieldChange('fundingGoal')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m/>[m
+[32m+[m				[32m</div>[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mTotal Project Capex ($)[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<input[m
+[32m+[m						[32mvalue={form.totalProjectCapex}[m
+[32m+[m						[32monChange={handleFieldChange('totalProjectCapex')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m/>[m
+[32m+[m				[32m</div>[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mMinimum Investment ($)[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<input[m
+[32m+[m						[32mvalue={form.minimumInvestment}[m
+[32m+[m						[32monChange={handleFieldChange('minimumInvestment')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m/>[m
+[32m+[m				[32m</div>[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mTarget IRR (%)[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<input[m
+[32m+[m						[32mvalue={form.targetIrr}[m
+[32m+[m						[32monChange={handleFieldChange('targetIrr')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m/>[m
+[32m+[m				[32m</div>[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mTarget Annual Yield (%)[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<input[m
+[32m+[m						[32mvalue={form.targetAnnualYield}[m
+[32m+[m						[32monChange={handleFieldChange('targetAnnualYield')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m/>[m
+[32m+[m				[32m</div>[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mInvestment Term (years)[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<input[m
+[32m+[m						[32mvalue={form.investmentTermYears}[m
+[32m+[m						[32monChange={handleFieldChange('investmentTermYears')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m/>[m
+[32m+[m				[32m</div>[m
+[32m+[m			[32m</div>[m
+[32m+[m
+[32m+[m			[32m<div className="mt-8">[m
+[32m+[m				[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m					[32mInvestment Summary[m
+[32m+[m				[32m</label>[m
+[32m+[m				[32m<textarea[m
+[32m+[m					[32mvalue={form.investmentSummary}[m
+[32m+[m					[32monChange={handleFieldChange('investmentSummary')}[m
+[32m+[m					[32mmaxLength={500}[m
+[32m+[m					[32mrows={5}[m
+[32m+[m					[32mplaceholder="Short description for investor cards"[m
+[32m+[m					[32mclassName={inputClass}[m
+[32m+[m				[32m/>[m
+[32m+[m				[32m<p className="mt-2 text-xs text-[#6B7280]">[m
+[32m+[m					[32m{form.investmentSummary.length}/500 characters[m
+[32m+[m				[32m</p>[m
+[32m+[m			[32m</div>[m
+[32m+[m
+[32m+[m			[32m<div className="mt-8">[m
+[32m+[m				[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m					[32mThumbnail Image URL[m
+[32m+[m				[32m</label>[m
+[32m+[m				[32m<input[m
+[32m+[m					[32mvalue={form.thumbnailImageUrl}[m
+[32m+[m					[32monChange={handleFieldChange('thumbnailImageUrl')}[m
+[32m+[m					[32mplaceholder="https://..."[m
+[32m+[m					[32mclassName={inputClass}[m
+[32m+[m				[32m/>[m
+[32m+[m				[32m<p className="mt-2 text-xs text-[#6B7280]">[m
+[32m+[m					[32mThis image will be used on project cards in Projects and[m
+[32m+[m					[32mOpportunities.[m
+[32m+[m				[32m</p>[m
+[32m+[m			[32m</div>[m
+[32m+[m
+[32m+[m			[32m{renderContinueButton()}[m
+[32m+[m		[32m</>[m
+[32m+[m	[32m);[m
+[32m+[m
+[32m+[m	[32mconst renderAssetDescription = () => ([m
+[32m+[m		[32m<>[m
+[32m+[m			[32m<h2 className="text-4xl font-semibold text-[#111827]">[m
+[32m+[m				[32mAsset Description[m
+[32m+[m			[32m</h2>[m
+[32m+[m			[32m<p className="mt-2 text-base text-[#6B7280]">[m
+[32m+[m				[32mPhysical asset profile, infrastructure details, and site context.[m
+[32m+[m			[32m</p>[m
+[32m+[m
+[32m+[m			[32m<div className="mt-8 grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mTechnology Type[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<input[m
+[32m+[m						[32mvalue={form.technologyType}[m
+[32m+[m						[32monChange={handleFieldChange('technologyType')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m/>[m
+[32m+[m				[32m</div>[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mCapacity (kW / MW)[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<input[m
+[32m+[m						[32mvalue={form.capacityKwMw}[m
+[32m+[m						[32monChange={handleFieldChange('capacityKwMw')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m/>[m
+[32m+[m				[32m</div>[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mEnergy Output (MWh/year)[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<input[m
+[32m+[m						[32mvalue={form.energyOutputMwhYear}[m
+[32m+[m						[32monChange={handleFieldChange('energyOutputMwhYear')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m/>[m
+[32m+[m				[32m</div>[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mAsset Lifetime (years)[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<input[m
+[32m+[m						[32mvalue={form.assetLifetimeYears}[m
+[32m+[m						[32monChange={handleFieldChange('assetLifetimeYears')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m/>[m
+[32m+[m				[32m</div>[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mManufacturer[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<input[m
+[32m+[m						[32mvalue={form.manufacturer}[m
+[32m+[m						[32monChange={handleFieldChange('manufacturer')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m/>[m
+[32m+[m				[32m</div>[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mModel / System Type[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<input[m
+[32m+[m						[32mvalue={form.modelSystemType}[m
+[32m+[m						[32monChange={handleFieldChange('modelSystemType')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m/>[m
+[32m+[m				[32m</div>[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mSite Ownership[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<select[m
+[32m+[m						[32mvalue={form.siteOwnership}[m
+[32m+[m						[32monChange={handleFieldChange('siteOwnership')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m>[m
+[32m+[m						[32m<option value="Owned">Owned</option>[m
+[32m+[m						[32m<option value="Leased">Leased</option>[m
+[32m+[m						[32m<option value="PPA Host">PPA Host</option>[m
+[32m+[m					[32m</select>[m
+[32m+[m				[32m</div>[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mLand Status[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<input[m
+[32m+[m						[32mvalue={form.landStatus}[m
+[32m+[m						[32monChange={handleFieldChange('landStatus')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m/>[m
+[32m+[m				[32m</div>[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mGrid Connection Status[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<select[m
+[32m+[m						[32mvalue={form.gridConnectionStatus}[m
+[32m+[m						[32monChange={handleFieldChange('gridConnectionStatus')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m>[m
+[32m+[m						[32m<option value="Approved">Approved</option>[m
+[32m+[m						[32m<option value="Pending">Pending</option>[m
+[32m+[m						[32m<option value="Not started">Not started</option>[m
+[32m+[m					[32m</select>[m
+[32m+[m				[32m</div>[m
+[32m+[m			[32m</div>[m
+[32m+[m
+[32m+[m			[32m{renderContinueButton()}[m
+[32m+[m		[32m</>[m
+[32m+[m	[32m);[m
+[32m+[m
+[32m+[m	[32mconst renderTechnicalDetails = () => ([m
+[32m+[m		[32m<>[m
+[32m+[m			[32m<h2 className="text-4xl font-semibold text-[#111827]">[m
+[32m+[m				[32mTechnical Details[m
+[32m+[m			[32m</h2>[m
+[32m+[m			[32m<p className="mt-2 text-base text-[#6B7280]">[m
+[32m+[m				[32mEngineering, commissioning, performance, and operational assumptions.[m
+[32m+[m			[32m</p>[m
+[32m+[m
+[32m+[m			[32m<div className="mt-8 grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mEPC Contractor[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<input[m
+[32m+[m						[32mvalue={form.epcContractor}[m
+[32m+[m						[32monChange={handleFieldChange('epcContractor')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m/>[m
+[32m+[m				[32m</div>[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mInstallation Timeline (months)[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<input[m
+[32m+[m						[32mvalue={form.installationTimelineMonths}[m
+[32m+[m						[32monChange={handleFieldChange('installationTimelineMonths')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m/>[m
+[32m+[m				[32m</div>[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mCommissioning Date[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<input[m
+[32m+[m						[32mvalue={form.commissioningDate}[m
+[32m+[m						[32monChange={handleFieldChange('commissioningDate')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m/>[m
+[32m+[m				[32m</div>[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mExpected Utilisation (%)[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<input[m
+[32m+[m						[32mvalue={form.expectedUtilisation}[m
+[32m+[m						[32monChange={handleFieldChange('expectedUtilisation')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m/>[m
+[32m+[m				[32m</div>[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mDegradation Rate (%)[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<input[m
+[32m+[m						[32mvalue={form.degradationRate}[m
+[32m+[m						[32monChange={handleFieldChange('degradationRate')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m/>[m
+[32m+[m				[32m</div>[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mWarranty Terms (years)[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<input[m
+[32m+[m						[32mvalue={form.warrantyTermsYears}[m
+[32m+[m						[32monChange={handleFieldChange('warrantyTermsYears')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m/>[m
+[32m+[m				[32m</div>[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mO&M Provider[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<input[m
+[32m+[m						[32mvalue={form.omProvider}[m
+[32m+[m						[32monChange={handleFieldChange('omProvider')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m/>[m
+[32m+[m				[32m</div>[m
+[32m+[m			[32m</div>[m
+[32m+[m
+[32m+[m			[32m{renderContinueButton()}[m
+[32m+[m		[32m</>[m
+[32m+[m	[32m);[m
+[32m+[m
+[32m+[m	[32mconst renderCommercialModel = () => ([m
+[32m+[m		[32m<>[m
+[32m+[m			[32m<h2 className="text-4xl font-semibold text-[#111827]">[m
+[32m+[m				[32mCommercial Model[m
+[32m+[m			[32m</h2>[m
+[32m+[m			[32m<p className="mt-2 text-base text-[#6B7280]">[m
+[32m+[m				[32mRevenue model, counterparties, contract terms, and financial outputs.[m
+[32m+[m			[32m</p>[m
+[32m+[m
+[32m+[m			[32m<div className="mt-8">[m
+[32m+[m				[32m<label className="mb-3 block text-sm font-medium text-[#111827]">[m
+[32m+[m					[32mRevenue Types[m
+[32m+[m				[32m</label>[m
+[32m+[m				[32m<div className="flex flex-wrap gap-3">[m
+[32m+[m					[32m{(['PPA', 'Arbitrage', 'Capacity', 'Mixed'] as RevenueType[]).map([m
+[32m+[m						[32m(type) => {[m
+[32m+[m							[32mconst selected = form.revenueTypes.includes(type);[m
+[32m+[m							[32mreturn ([m
+[32m+[m								[32m<button[m
+[32m+[m									[32mkey={type}[m
+[32m+[m									[32mtype="button"[m
+[32m+[m									[32monClick={() => handleMultiSelectToggle('revenueTypes', type)}[m
+[32m+[m									[32mclassName={`rounded-full border px-4 py-2 text-sm font-medium transition ${[m
+[32m+[m										[32mselected[m
+[32m+[m											[32m? 'border-[#1D4ED8] bg-[#DBEAFE] text-[#1D4ED8]'[m
+[32m+[m											[32m: 'border-slate-300 bg-white text-[#111827]'[m
+[32m+[m									[32m}`}[m
+[32m+[m								[32m>[m
+[32m+[m									[32m{type}[m
+[32m+[m								[32m</button>[m
+[32m+[m							[32m);[m
+[32m+[m						[32m},[m
+[32m+[m					[32m)}[m
+[32m+[m				[32m</div>[m
+[32m+[m			[32m</div>[m
+[32m+[m
+[32m+[m			[32m<div className="mt-8 grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mPrimary Counterparty[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<input[m
+[32m+[m						[32mvalue={form.primaryCounterparty}[m
+[32m+[m						[32monChange={handleFieldChange('primaryCounterparty')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m/>[m
+[32m+[m				[32m</div>[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mCounterparty Type[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<select[m
+[32m+[m						[32mvalue={form.counterpartyType}[m
+[32m+[m						[32monChange={handleFieldChange('counterpartyType')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m>[m
+[32m+[m						[32m<option value="Corporate">Corporate</option>[m
+[32m+[m						[32m<option value="Utility">Utility</option>[m
+[32m+[m						[32m<option value="SME">SME</option>[m
+[32m+[m					[32m</select>[m
+[32m+[m				[32m</div>[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mContract Length (years)[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<input[m
+[32m+[m						[32mvalue={form.contractLengthYears}[m
+[32m+[m						[32monChange={handleFieldChange('contractLengthYears')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m/>[m
+[32m+[m				[32m</div>[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mContract Price[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<input[m
+[32m+[m						[32mvalue={form.contractPrice}[m
+[32m+[m						[32monChange={handleFieldChange('contractPrice')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m/>[m
+[32m+[m				[32m</div>[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mEscalation[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<input[m
+[32m+[m						[32mvalue={form.escalation}[m
+[32m+[m						[32monChange={handleFieldChange('escalation')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m/>[m
+[32m+[m				[32m</div>[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mProjected Annual Revenue[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<input[m
+[32m+[m						[32mvalue={form.projectedAnnualRevenue}[m
+[32m+[m						[32monChange={handleFieldChange('projectedAnnualRevenue')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m/>[m
+[32m+[m				[32m</div>[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mOperating Costs Per Year[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<input[m
+[32m+[m						[32mvalue={form.operatingCostsPerYear}[m
+[32m+[m						[32monChange={handleFieldChange('operatingCostsPerYear')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m/>[m
+[32m+[m				[32m</div>[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mNet Yield[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<input[m
+[32m+[m						[32mvalue={form.netYield}[m
+[32m+[m						[32monChange={handleFieldChange('netYield')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m/>[m
+[32m+[m				[32m</div>[m
+[32m+[m			[32m</div>[m
+[32m+[m
+[32m+[m			[32m{renderContinueButton()}[m
+[32m+[m		[32m</>[m
+[32m+[m	[32m);[m
+[32m+[m
+[32m+[m	[32mconst renderUseOfFunds = () => ([m
+[32m+[m		[32m<>[m
+[32m+[m			[32m<h2 className="text-4xl font-semibold text-[#111827]">Use of Funds</h2>[m
+[32m+[m			[32m<p className="mt-2 text-base text-[#6B7280]">[m
+[32m+[m				[32mStructured funding allocation across key cost categories.[m
+[32m+[m			[32m</p>[m
+[32m+[m
+[32m+[m			[32m<div className="mt-8 grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mEquipment Cost[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<input[m
+[32m+[m						[32mvalue={form.useOfFunds.equipmentCost}[m
+[32m+[m						[32monChange={handleNestedChange('useOfFunds', 'equipmentCost')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m/>[m
+[32m+[m				[32m</div>[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mInstallation Cost[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<input[m
+[32m+[m						[32mvalue={form.useOfFunds.installationCost}[m
+[32m+[m						[32monChange={handleNestedChange('useOfFunds', 'installationCost')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m/>[m
+[32m+[m				[32m</div>[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mGrid Connection Cost[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<input[m
+[32m+[m						[32mvalue={form.useOfFunds.gridConnectionCost}[m
+[32m+[m						[32monChange={handleNestedChange('useOfFunds', 'gridConnectionCost')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m/>[m
+[32m+[m				[32m</div>[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mDevelopment Costs[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<input[m
+[32m+[m						[32mvalue={form.useOfFunds.developmentCosts}[m
+[32m+[m						[32monChange={handleNestedChange('useOfFunds', 'developmentCosts')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m/>[m
+[32m+[m				[32m</div>[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mContingency[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<input[m
+[32m+[m						[32mvalue={form.useOfFunds.contingency}[m
+[32m+[m						[32monChange={handleNestedChange('useOfFunds', 'contingency')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m/>[m
+[32m+[m				[32m</div>[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mRegenX Fees[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<input[m
+[32m+[m						[32mvalue={form.useOfFunds.regenxFees}[m
+[32m+[m						[32monChange={handleNestedChange('useOfFunds', 'regenxFees')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m/>[m
+[32m+[m				[32m</div>[m
+[32m+[m			[32m</div>[m
+[32m+[m
+[32m+[m			[32m<div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">[m
+[32m+[m				[32m<div className="flex flex-col gap-2 text-sm text-[#111827] md:flex-row md:items-center md:justify-between">[m
+[32m+[m					[32m<span>Use of funds total: ${useOfFundsSum.toLocaleString()}</span>[m
+[32m+[m					[32m<span>Funding goal: ${fundingGoalNumber.toLocaleString()}</span>[m
+[32m+[m					[32m<span[m
+[32m+[m						[32mclassName={[m
+[32m+[m							[32museOfFundsMatchesGoal ? 'text-emerald-700' : 'text-rose-600'[m
+[32m+[m						[32m}[m
+[32m+[m					[32m>[m
+[32m+[m						[32m{useOfFundsMatchesGoal[m
+[32m+[m							[32m? 'Matches funding goal'[m
+[32m+[m							[32m: 'Does not match funding goal'}[m
+[32m+[m					[32m</span>[m
+[32m+[m				[32m</div>[m
+[32m+[m			[32m</div>[m
+[32m+[m
+[32m+[m			[32m{renderContinueButton()}[m
+[32m+[m		[32m</>[m
+[32m+[m	[32m);[m
+[32m+[m
+[32m+[m	[32mconst renderComplianceAndRisks = () => ([m
+[32m+[m		[32m<>[m
+[32m+[m			[32m<h2 className="text-4xl font-semibold text-[#111827]">[m
+[32m+[m				[32mCompliance & Risks[m
+[32m+[m			[32m</h2>[m
+[32m+[m			[32m<p className="mt-2 text-base text-[#6B7280]">[m
+[32m+[m				[32mPermits, approvals, risk assessment, and mitigation controls.[m
+[32m+[m			[32m</p>[m
+[32m+[m
+[32m+[m			[32m<div className="mt-8 grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mPermits Status[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<select[m
+[32m+[m						[32mvalue={form.permitsStatus}[m
+[32m+[m						[32monChange={handleFieldChange('permitsStatus')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m>[m
+[32m+[m						[32m<option value="Approved">Approved</option>[m
+[32m+[m						[32m<option value="Pending">Pending</option>[m
+[32m+[m						[32m<option value="Not required">Not required</option>[m
+[32m+[m					[32m</select>[m
+[32m+[m				[32m</div>[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mEnvironmental Approvals[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<input[m
+[32m+[m						[32mvalue={form.environmentalApprovals}[m
+[32m+[m						[32monChange={handleFieldChange('environmentalApprovals')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m/>[m
+[32m+[m				[32m</div>[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mGrid Approval Status[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<select[m
+[32m+[m						[32mvalue={form.gridApprovalStatus}[m
+[32m+[m						[32monChange={handleFieldChange('gridApprovalStatus')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m>[m
+[32m+[m						[32m<option value="Approved">Approved</option>[m
+[32m+[m						[32m<option value="Pending">Pending</option>[m
+[32m+[m						[32m<option value="Not started">Not started</option>[m
+[32m+[m					[32m</select>[m
+[32m+[m				[32m</div>[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mConstruction Risk Level[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<select[m
+[32m+[m						[32mvalue={form.constructionRiskLevel}[m
+[32m+[m						[32monChange={handleFieldChange('constructionRiskLevel')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m>[m
+[32m+[m						[32m<option value="Low">Low</option>[m
+[32m+[m						[32m<option value="Medium">Medium</option>[m
+[32m+[m						[32m<option value="High">High</option>[m
+[32m+[m					[32m</select>[m
+[32m+[m				[32m</div>[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mCounterparty Risk Level[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<select[m
+[32m+[m						[32mvalue={form.counterpartyRiskLevel}[m
+[32m+[m						[32monChange={handleFieldChange('counterpartyRiskLevel')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m>[m
+[32m+[m						[32m<option value="Low">Low</option>[m
+[32m+[m						[32m<option value="Medium">Medium</option>[m
+[32m+[m						[32m<option value="High">High</option>[m
+[32m+[m					[32m</select>[m
+[32m+[m				[32m</div>[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mMarket Risk Level[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<select[m
+[32m+[m						[32mvalue={form.marketRiskLevel}[m
+[32m+[m						[32monChange={handleFieldChange('marketRiskLevel')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m>[m
+[32m+[m						[32m<option value="Low">Low</option>[m
+[32m+[m						[32m<option value="Medium">Medium</option>[m
+[32m+[m						[32m<option value="High">High</option>[m
+[32m+[m					[32m</select>[m
+[32m+[m				[32m</div>[m
+[32m+[m				[32m<div className="md:col-span-2 xl:col-span-3">[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mHedging Strategy[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<textarea[m
+[32m+[m						[32mvalue={form.hedgingStrategy}[m
+[32m+[m						[32monChange={handleFieldChange('hedgingStrategy')}[m
+[32m+[m						[32mrows={4}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m/>[m
+[32m+[m				[32m</div>[m
+[32m+[m			[32m</div>[m
+[32m+[m
+[32m+[m			[32m<div className="mt-6 flex flex-wrap gap-6">[m
+[32m+[m				[32m<label className="inline-flex items-center gap-3 text-sm text-[#111827]">[m
+[32m+[m					[32m<input[m
+[32m+[m						[32mtype="checkbox"[m
+[32m+[m						[32mchecked={form.fixedPriceEpc}[m
+[32m+[m						[32monChange={handleCheckboxChange('fixedPriceEpc')}[m
+[32m+[m					[32m/>[m
+[32m+[m					[32mFixed Price EPC[m
+[32m+[m				[32m</label>[m
+[32m+[m				[32m<label className="inline-flex items-center gap-3 text-sm text-[#111827]">[m
+[32m+[m					[32m<input[m
+[32m+[m						[32mtype="checkbox"[m
+[32m+[m						[32mchecked={form.insuranceInPlace}[m
+[32m+[m						[32monChange={handleCheckboxChange('insuranceInPlace')}[m
+[32m+[m					[32m/>[m
+[32m+[m					[32mInsurance In Place[m
+[32m+[m				[32m</label>[m
+[32m+[m			[32m</div>[m
+[32m+[m
+[32m+[m			[32m{renderContinueButton()}[m
+[32m+[m		[32m</>[m
+[32m+[m	[32m);[m
+[32m+[m
+[32m+[m	[32mconst renderLegalStructure = () => ([m
+[32m+[m		[32m<>[m
+[32m+[m			[32m<h2 className="text-4xl font-semibold text-[#111827]">[m
+[32m+[m				[32mLegal / Token Structure[m
+[32m+[m			[32m</h2>[m
+[32m+[m			[32m<p className="mt-2 text-base text-[#6B7280]">[m
+[32m+[m				[32mSPV, entity design, investor rights, and distribution settings.[m
+[32m+[m			[32m</p>[m
+[32m+[m
+[32m+[m			[32m<div className="mt-8 grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mSPV Name[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<input[m
+[32m+[m						[32mvalue={form.spvName}[m
+[32m+[m						[32monChange={handleFieldChange('spvName')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m/>[m
+[32m+[m				[32m</div>[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mEntity Type[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<select[m
+[32m+[m						[32mvalue={form.entityType}[m
+[32m+[m						[32monChange={handleFieldChange('entityType')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m>[m
+[32m+[m						[32m<option value="Trust">Trust</option>[m
+[32m+[m						[32m<option value="Company">Company</option>[m
+[32m+[m						[32m<option value="MIS">MIS</option>[m
+[32m+[m					[32m</select>[m
+[32m+[m				[32m</div>[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mLegal Jurisdiction[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<input[m
+[32m+[m						[32mvalue={form.legalJurisdiction}[m
+[32m+[m						[32monChange={handleFieldChange('legalJurisdiction')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m/>[m
+[32m+[m				[32m</div>[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mTrustee Name[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<input[m
+[32m+[m						[32mvalue={form.trusteeName}[m
+[32m+[m						[32monChange={handleFieldChange('trusteeName')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m/>[m
+[32m+[m				[32m</div>[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mCustodian[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<input[m
+[32m+[m						[32mvalue={form.custodian}[m
+[32m+[m						[32monChange={handleFieldChange('custodian')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m/>[m
+[32m+[m				[32m</div>[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mToken Type / Series[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<input[m
+[32m+[m						[32mvalue={form.tokenTypeSeries}[m
+[32m+[m						[32monChange={handleFieldChange('tokenTypeSeries')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m/>[m
+[32m+[m				[32m</div>[m
+[32m+[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mToken Name[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<input[m
+[32m+[m						[32mvalue={form.tokenName}[m
+[32m+[m						[32monChange={handleFieldChange('tokenName')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m/>[m
+[32m+[m				[32m</div>[m
+[32m+[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mToken Symbol (e.g. SOLR)[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<input[m
+[32m+[m						[32mvalue={form.tokenSymbol}[m
+[32m+[m						[32monChange={handleFieldChange('tokenSymbol')}[m
+[32m+[m						[32mmaxLength={5}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m/>[m
+[32m+[m				[32m</div>[m
+[32m+[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mTotal Supply[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<input[m
+[32m+[m						[32mvalue={form.totalSupply}[m
+[32m+[m						[32monChange={handleFieldChange('totalSupply')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m/>[m
+[32m+[m				[32m</div>[m
+[32m+[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mPrice Per Token (AUD)[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<input[m
+[32m+[m						[32mvalue={form.tokenPrice}[m
+[32m+[m						[32monChange={handleFieldChange('tokenPrice')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m/>[m
+[32m+[m				[32m</div>[m
+[32m+[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mDistribution Frequency[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<select[m
+[32m+[m						[32mvalue={form.distributionFrequency}[m
+[32m+[m						[32monChange={handleFieldChange('distributionFrequency')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m>[m
+[32m+[m						[32m<option value="Monthly">Monthly</option>[m
+[32m+[m						[32m<option value="Quarterly">Quarterly</option>[m
+[32m+[m						[32m<option value="Annual">Annual</option>[m
+[32m+[m					[32m</select>[m
+[32m+[m				[32m</div>[m
+[32m+[m			[32m</div>[m
+[32m+[m
+[32m+[m			[32m<div className="mt-6">[m
+[32m+[m				[32m<label className="inline-flex items-center gap-3 text-sm text-[#111827]">[m
+[32m+[m					[32m<input[m
+[32m+[m						[32mtype="checkbox"[m
+[32m+[m						[32mchecked={form.misStructure}[m
+[32m+[m						[32monChange={handleCheckboxChange('misStructure')}[m
+[32m+[m					[32m/>[m
+[32m+[m					[32mManaged Investment Scheme Structure[m
+[32m+[m				[32m</label>[m
+[32m+[m			[32m</div>[m
+[32m+[m
+[32m+[m			[32m<div className="mt-8">[m
+[32m+[m				[32m<label className="mb-3 block text-sm font-medium text-[#111827]">[m
+[32m+[m					[32mInvestor Rights[m
+[32m+[m				[32m</label>[m
+[32m+[m				[32m<div className="flex flex-wrap gap-3">[m
+[32m+[m					[32m{(['Income', 'Ownership', 'Voting'] as InvestorRight[]).map([m
+[32m+[m						[32m(right) => {[m
+[32m+[m							[32mconst selected = form.investorRights.includes(right);[m
+[32m+[m							[32mreturn ([m
+[32m+[m								[32m<button[m
+[32m+[m									[32mkey={right}[m
+[32m+[m									[32mtype="button"[m
+[32m+[m									[32monClick={() =>[m
+[32m+[m										[32mhandleMultiSelectToggle('investorRights', right)[m
+[32m+[m									[32m}[m
+[32m+[m									[32mclassName={`rounded-full border px-4 py-2 text-sm font-medium transition ${[m
+[32m+[m										[32mselected[m
+[32m+[m											[32m? 'border-[#1D4ED8] bg-[#DBEAFE] text-[#1D4ED8]'[m
+[32m+[m											[32m: 'border-slate-300 bg-white text-[#111827]'[m
+[32m+[m									[32m}`}[m
+[32m+[m								[32m>[m
+[32m+[m									[32m{right}[m
+[32m+[m								[32m</button>[m
+[32m+[m							[32m);[m
+[32m+[m						[32m},[m
+[32m+[m					[32m)}[m
+[32m+[m				[32m</div>[m
+[32m+[m			[32m</div>[m
+[32m+[m
+[32m+[m			[32m{renderContinueButton()}[m
+[32m+[m		[32m</>[m
+[32m+[m	[32m);[m
+[32m+[m
+[32m+[m	[32mconst renderDocumentsAndUploads = () => ([m
+[32m+[m		[32m<>[m
+[32m+[m			[32m<h2 className="text-4xl font-semibold text-[#111827]">[m
+[32m+[m				[32mDocuments & Uploads[m
+[32m+[m			[32m</h2>[m
+[32m+[m			[32m<p className="mt-2 text-base text-[#6B7280]">[m
+[32m+[m				[32mRequired URLs or file references for core investment documents.[m
+[32m+[m			[32m</p>[m
+[32m+[m
+[32m+[m			[32m<div className="mt-8 grid grid-cols-1 gap-5">[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mInformation Memorandum[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<input[m
+[32m+[m						[32mvalue={form.documentsAndUploads.informationMemorandum}[m
+[32m+[m						[32monChange={handleNestedChange([m
+[32m+[m							[32m'documentsAndUploads',[m
+[32m+[m							[32m'informationMemorandum',[m
+[32m+[m						[32m)}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m/>[m
+[32m+[m				[32m</div>[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mFinancial Model[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<input[m
+[32m+[m						[32mvalue={form.documentsAndUploads.financialModel}[m
+[32m+[m						[32monChange={handleNestedChange([m
+[32m+[m							[32m'documentsAndUploads',[m
+[32m+[m							[32m'financialModel',[m
+[32m+[m						[32m)}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m/>[m
+[32m+[m				[32m</div>[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mPPA / Revenue Contracts[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<input[m
+[32m+[m						[32mvalue={form.documentsAndUploads.ppaRevenueContracts}[m
+[32m+[m						[32monChange={handleNestedChange([m
+[32m+[m							[32m'documentsAndUploads',[m
+[32m+[m							[32m'ppaRevenueContracts',[m
+[32m+[m						[32m)}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m/>[m
+[32m+[m				[32m</div>[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mEngineering Report[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<input[m
+[32m+[m						[32mvalue={form.documentsAndUploads.engineeringReport}[m
+[32m+[m						[32monChange={handleNestedChange([m
+[32m+[m							[32m'documentsAndUploads',[m
+[32m+[m							[32m'engineeringReport',[m
+[32m+[m						[32m)}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m/>[m
+[32m+[m				[32m</div>[m
+[32m+[m				[32m<div>[m
+[32m+[m					[32m<label className="mb-2 block text-sm font-medium text-[#111827]">[m
+[32m+[m						[32mLegal Docs[m
+[32m+[m					[32m</label>[m
+[32m+[m					[32m<input[m
+[32m+[m						[32mvalue={form.documentsAndUploads.legalDocs}[m
+[32m+[m						[32monChange={handleNestedChange('documentsAndUploads', 'legalDocs')}[m
+[32m+[m						[32mclassName={inputClass}[m
+[32m+[m					[32m/>[m
+[32m+[m				[32m</div>[m
+[32m+[m			[32m</div>[m
+[32m+[m
+[32m+[m			[32m{renderContinueButton()}[m
+[32m+[m		[32m</>[m
+[32m+[m	[32m);[m
+[32m+[m
+[32m+[m	[32mconst renderAgreement = () => ([m
+[32m+[m		[32m<div className="space-y-6">[m
+[32m+[m			[32m<div>[m
+[32m+[m				[32m<p className="text-sm font-medium text-[#EC4899]">[m
+[32m+[m					[32mLegal / Token Structure[m
+[32m+[m				[32m</p>[m
+[32m+[m				[32m<h2 className="mt-1 text-2xl font-semibold text-[#111827]">[m
+[32m+[m					[32mPlatform agreements and declarations[m
+[32m+[m				[32m</h2>[m
+[32m+[m				[32m<p className="mt-2 max-w-3xl text-sm text-[#6B7280]">[m
+[32m+[m					[32mReview and accept the Platform Agreement, Project Developer[m
+[32m+[m					[32mDeclaration, and Tokenised Offering Terms before submitting this[m
+[32m+[m					[32mproject for review.[m
+[32m+[m				[32m</p>[m
+[32m+[m			[32m</div>[m
+[32m+[m
+[32m+[m			[32m<AgreementSections onAllAccepted={setAgreementsAccepted} />[m
+[32m+[m
+[32m+[m			[32m{!agreementsAccepted && ([m
+[32m+[m				[32m<div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">[m
+[32m+[m					[32mAll three agreement sections must be accepted before you can continue.[m
+[32m+[m				[32m</div>[m
+[32m+[m			[32m)}[m
+[32m+[m		[32m</div>[m
+[32m+[m	[32m);[m
+[32m+[m
+[32m+[m	[32mconst renderActiveSection = () => {[m
+[32m+[m		[32mswitch (activeKey) {[m
+[32m+[m			[32mcase 'projectOverview':[m
+[32m+[m				[32mreturn renderProjectOverview();[m
+[32m+[m			[32mcase 'assetDescription':[m
+[32m+[m				[32mreturn renderAssetDescription();[m
+[32m+[m			[32mcase 'technicalDetails':[m
+[32m+[m				[32mreturn renderTechnicalDetails();[m
+[32m+[m			[32mcase 'commercialModel':[m
+[32m+[m				[32mreturn renderCommercialModel();[m
+[32m+[m			[32mcase 'useOfFunds':[m
+[32m+[m				[32mreturn renderUseOfFunds();[m
+[32m+[m			[32mcase 'complianceAndRisks':[m
+[32m+[m				[32mreturn renderComplianceAndRisks();[m
+[32m+[m			[32mcase 'legalStructure':[m
+[32m+[m				[32mreturn renderLegalStructure();[m
+[32m+[m			[32mcase 'documentsAndUploads':[m
+[32m+[m				[32mreturn renderDocumentsAndUploads();[m
+[32m+[m			[32mcase 'agreement':[m
+[32m+[m				[32mreturn renderAgreement();[m
+[32m+[m			[32mdefault:[m
+[32m+[m				[32mreturn renderProjectOverview();[m
+[32m+[m		[32m}[m
+[32m+[m	[32m};[m
+[32m+[m
+[32m+[m	[32mreturn ([m
+[32m+[m		[32m<div className="min-h-screen bg-[#F8FAFC]">[m
+[32m+[m			[32m<div className="px-6 pb-8 pt-6 md:px-8 xl:px-10">[m
+[32m+[m				[32m<div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">[m
+[32m+[m					[32m<div>[m
+[32m+[m						[32m<p className="text-sm font-medium text-[#EC4899]">[m
+[32m+[m							[32mClimate Developer[m
+[32m+[m						[32m</p>[m
+[32m+[m						[32m<h1 className="mt-1 text-4xl font-semibold text-[#111827]">[m
+[32m+[m							[32mProject Setup[m
+[32m+[m						[32m</h1>[m
+[32m+[m						[32m<p className="mt-2 max-w-3xl text-sm text-[#6B7280]">[m
+[32m+[m							[32mComplete all sections required for investment review, compliance,[m
+[32m+[m							[32mand project approval.[m
+[32m+[m						[32m</p>[m
+[32m+[m					[32m</div>[m
+[32m+[m
+[32m+[m					[32m<div className="flex flex-wrap gap-3">[m
+[32m+[m						[32m<button[m
+[32m+[m							[32mtype="button"[m
+[32m+[m							[32monClick={handleSaveDraft}[m
+[32m+[m							[32mclassName="rounded-2xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-[#111827]"[m
+[32m+[m						[32m>[m
+[32m+[m							[32mSave Draft[m
+[32m+[m						[32m</button>[m
+[32m+[m						[32m<button[m
+[32m+[m							[32mtype="button"[m
+[32m+[m							[32monClick={handleClearDraft}[m
+[32m+[m							[32mclassName="rounded-2xl border border-rose-200 bg-rose-50 px-5 py-3 text-sm font-semibold text-rose-700"[m
+[32m+[m						[32m>[m
+[32m+[m							[32mClear Draft[m
+[32m+[m						[32m</button>[m
+[32m+[m						[32m<button[m
+[32m+[m							[32mtype="button"[m
+[32m+[m							[32monClick={handleSubmitProject}[m
+[32m+[m							[32mdisabled={!canSubmitProject || !agreementsAccepted}[m
+[32m+[m							[32mclassName={`rounded-2xl px-5 py-3 text-sm font-semibold text-white ${[m
+[32m+[m								[32mcanSubmitProject[m
+[32m+[m									[32m? 'bg-[#1D4ED8] hover:bg-[#1E40AF]'[m
+[32m+[m									[32m: 'cursor-not-allowed bg-slate-300'[m
+[32m+[m							[32m}`}[m
+[32m+[m						[32m>[m
+[32m+[m							[32mSubmit Project[m
+[32m+[m						[32m</button>[m
+[32m+[m					[32m</div>[m
+[32m+[m				[32m</div>[m
+[32m+[m
+[32m+[m				[32m<div className="mb-6 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">[m
+[32m+[m					[32m<div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">[m
+[32m+[m						[32m<div>[m
+[32m+[m							[32m<p className="text-sm font-medium text-[#111827]">[m
+[32m+[m								[32mSubmission Progress[m
+[32m+[m							[32m</p>[m
+[32m+[m							[32m<p className="mt-1 text-3xl font-semibold text-[#111827]">[m
+[32m+[m								[32m{progressPercent}%[m
+[32m+[m							[32m</p>[m
+[32m+[m							[32m<p className="mt-1 text-sm text-[#6B7280]">[m
+[32m+[m								[32m{completedCount} of {workflowItems.length} sections completed[m
+[32m+[m							[32m</p>[m
+[32m+[m						[32m</div>[m
+[32m+[m
+[32m+[m						[32m<div className="w-full xl:max-w-xl">[m
+[32m+[m							[32m<div className="h-3 w-full overflow-hidden rounded-full bg-slate-200">[m
+[32m+[m								[32m<div[m
+[32m+[m									[32mclassName="h-full rounded-full bg-[#EC4899] transition-all"[m
+[32m+[m									[32mstyle={{ width: `${progressPercent}%` }}[m
+[32m+[m								[32m/>[m
+[32m+[m							[32m</div>[m
+[32m+[m							[32m<p className="mt-2 text-sm text-[#6B7280]">{saveMessage}</p>[m
+[32m+[m						[32m</div>[m
+[32m+[m					[32m</div>[m
+[32m+[m				[32m</div>[m
+[32m+[m
+[32m+[m				[32m<div className="grid grid-cols-1 gap-6 xl:grid-cols-[340px_minmax(0,1fr)]">[m
+[32m+[m					[32m<div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">[m
+[32m+[m						[32m<h2 className="text-lg font-semibold text-[#111827]">Workflow</h2>[m
+[32m+[m
+[32m+[m						[32m<div className="mt-5 flex flex-col gap-3">[m
+[32m+[m							[32m{workflowItems.map((item, index) => {[m
+[32m+[m								[32mconst status = workflowStatus[item.key];[m
+[32m+[m								[32mconst isActive = activeKey === item.key;[m
+[32m+[m
+[32m+[m								[32mreturn ([m
+[32m+[m									[32m<button[m
+[32m+[m										[32mkey={item.key}[m
+[32m+[m										[32mtype="button"[m
+[32m+[m										[32monClick={() => setActiveKey(item.key)}[m
+[32m+[m										[32mclassName={`rounded-2xl border p-4 text-left transition ${getWorkflowClasses([m
+[32m+[m											[32mstatus,[m
+[32m+[m											[32misActive,[m
+[32m+[m										[32m)}`}[m
+[32m+[m									[32m>[m
+[32m+[m										[32m<div className="flex items-start justify-between gap-3">[m
+[32m+[m											[32m<div>[m
+[32m+[m												[32m<p className="text-xs font-semibold uppercase tracking-wide text-[#6B7280]">[m
+[32m+[m													[32mStep {index + 1}[m
+[32m+[m												[32m</p>[m
+[32m+[m												[32m<p className="mt-1 text-sm font-semibold text-[#111827]">[m
+[32m+[m													[32m{item.title}[m
+[32m+[m												[32m</p>[m
+[32m+[m												[32m<p className="mt-1 text-xs text-[#6B7280]">[m
+[32m+[m													[32m{item.description}[m
+[32m+[m												[32m</p>[m
+[32m+[m											[32m</div>[m
+[32m+[m
+[32m+[m											[32m<span className="rounded-full bg-white px-3 py-1 text-[11px] font-semibold text-[#111827]">[m
+[32m+[m												[32m{status}[m
+[32m+[m											[32m</span>[m
+[32m+[m										[32m</div>[m
+[32m+[m									[32m</button>[m
+[32m+[m								[32m);[m
+[32m+[m							[32m})}[m
+[32m+[m						[32m</div>[m
+[32m+[m					[32m</div>[m
+[32m+[m
+[32m+[m					[32m<div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">[m
+[32m+[m						[32m{renderActiveSection()}[m
+[32m+[m
+[32m+[m						[32m{activeKey === 'agreement' ? ([m
+[32m+[m							[32m<div className="mt-8 flex flex-col gap-4 border-t border-slate-200 pt-6 md:flex-row md:items-center md:justify-between">[m
+[32m+[m								[32m<div className="text-sm text-[#6B7280]">[m
+[32m+[m									[32mSubmission is enabled only when all sections are completed and[m
+[32m+[m									[32mall agreement fields are confirmed.[m
+[32m+[m								[32m</div>[m
+[32m+[m
+[32m+[m								[32m<button[m
+[32m+[m									[32mtype="button"[m
+[32m+[m									[32monClick={handleSubmitProject}[m
+[32m+[m									[32mdisabled={!canSubmitProject || !agreementsAccepted}[m
+[32m+[m									[32mclassName={`rounded-2xl px-6 py-3 text-sm font-semibold text-white ${[m
+[32m+[m										[32mcanSubmitProject[m
+[32m+[m											[32m? 'bg-[#1D4ED8] hover:bg-[#1E40AF]'[m
+[32m+[m											[32m: 'cursor-not-allowed bg-slate-300'[m
+[32m+[m									[32m}`}[m
+[32m+[m								[32m>[m
+[32m+[m									[32mSubmit Project[m
+[32m+[m								[32m</button>[m
+[32m+[m							[32m</div>[m
+[32m+[m						[32m) : null}[m
+[32m+[m					[32m</div>[m
+[32m+[m				[32m</div>[m
+[32m+[m			[32m</div>[m
+[32m+[m		[32m</div>[m
+[32m+[m	[32m);[m
+[32m+[m[32m}[m

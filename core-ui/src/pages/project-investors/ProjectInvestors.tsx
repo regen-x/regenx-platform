@@ -1,0 +1,306 @@
+import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+
+import {
+	AdminActionButton,
+	AdminDataTableShell,
+	AdminEmptyState,
+	AdminFilterBar,
+	AdminSectionCard,
+	AdminStatCard,
+	AdminStatusBadge,
+} from '@/components/admin-ui';
+import AppPageHeader from '@/components/layout/AppPageHeader';
+import AppPageShell from '@/components/layout/AppPageShell';
+import { IProject } from '@/interfaces/api/IProject';
+import { projectService } from '@/services/project.service';
+
+type InvestorRow = {
+	userId: number;
+	investorName: string;
+	amountInvested: number;
+	tokensHeld: number;
+	ownershipPercentage: number;
+	status: string;
+};
+
+type InvestorsResponse = {
+	project?: {
+		id: number;
+		uuid: string;
+		name?: string;
+		tokenSymbol?: string;
+		tokenSupply?: number;
+	};
+	totalInvestors: number;
+	totalCapitalRaised: number;
+	totalTokensHeld: number;
+	investors: InvestorRow[];
+	topHolders: InvestorRow[];
+	others?: {
+		investorCount: number;
+		amountInvested: number;
+		tokensHeld: number;
+		ownershipPercentage: number;
+	} | null;
+};
+
+const money = (value?: number | null) =>
+	value == null || Number.isNaN(Number(value))
+		? '—'
+		: new Intl.NumberFormat('en-AU', {
+				style: 'currency',
+				currency: 'AUD',
+				maximumFractionDigits: 2,
+		  }).format(Number(value));
+
+const normalizeProjectId = (projectId?: string | number | null) =>
+	String(projectId ?? '').trim();
+
+export default function ProjectInvestors() {
+	const [searchParams, setSearchParams] = useSearchParams();
+	const [projects, setProjects] = useState<IProject[]>([]);
+	const [selectedProjectId, setSelectedProjectId] = useState<string>('');
+	const [details, setDetails] = useState<InvestorsResponse | null>(null);
+	const [loading, setLoading] = useState(true);
+
+	useEffect(() => {
+		const loadProjects = async () => {
+			try {
+				const response = await projectService.getMyProjects();
+				const mapped = Array.isArray(response) ? response : [];
+				const requestedProjectId = normalizeProjectId(
+					searchParams.get('projectId'),
+				);
+				const matchedProject = mapped.find(
+					(project) => normalizeProjectId(project.id) === requestedProjectId,
+				);
+				const fallbackProject = mapped.find((project) =>
+					Boolean(normalizeProjectId(project.id)),
+				);
+				const nextSelectedProjectId = matchedProject
+					? normalizeProjectId(matchedProject.id)
+					: normalizeProjectId(fallbackProject?.id);
+
+				setProjects(mapped);
+				setSelectedProjectId(nextSelectedProjectId);
+				if (!nextSelectedProjectId) {
+					setDetails(null);
+				}
+			} finally {
+				setLoading(false);
+			}
+		};
+
+		void loadProjects();
+	}, [searchParams]);
+
+	useEffect(() => {
+		const requestedProjectId = normalizeProjectId(
+			searchParams.get('projectId'),
+		);
+		if (requestedProjectId === selectedProjectId) return;
+
+		if (!selectedProjectId) {
+			if (requestedProjectId) {
+				setSearchParams({}, { replace: true });
+			}
+			return;
+		}
+
+		setSearchParams({ projectId: selectedProjectId }, { replace: true });
+	}, [searchParams, selectedProjectId, setSearchParams]);
+
+	useEffect(() => {
+		if (!selectedProjectId) {
+			setDetails(null);
+			setLoading(false);
+			return;
+		}
+
+		const loadInvestors = async () => {
+			try {
+				setLoading(true);
+				const response = await projectService.getProjectInvestors(
+					selectedProjectId,
+				);
+				setDetails(response);
+			} catch {
+				setDetails(null);
+			} finally {
+				setLoading(false);
+			}
+		};
+
+		void loadInvestors();
+	}, [selectedProjectId]);
+
+	const capTableRows = useMemo(() => details?.topHolders ?? [], [details]);
+
+	return (
+		<AppPageShell>
+			<div className="mb-4 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+				<div className="min-w-0 flex-1">
+					<AppPageHeader
+						eyebrow="Climate Developer Portal"
+						title="Investors"
+						description="Monitor investor participation, settled holdings, and cap-table concentration for each project."
+					/>
+				</div>
+				<div className="flex shrink-0">
+					<AdminActionButton disabled>Export CSV</AdminActionButton>
+				</div>
+			</div>
+
+			<AdminDataTableShell
+				title="Project investor management"
+				description="Settled ownership and completed buy transactions only."
+				filters={
+					<AdminFilterBar>
+						<div className="max-w-sm flex-1">
+							<select
+								value={selectedProjectId}
+								onChange={(event) => setSelectedProjectId(event.target.value)}
+								className="min-h-[50px] w-full rounded-[14px] border theme-border theme-card px-4 py-3 theme-text"
+							>
+								{projects.map((project) => (
+									<option key={project.id} value={project.id}>
+										{project.name}
+									</option>
+								))}
+							</select>
+						</div>
+					</AdminFilterBar>
+				}
+				loading={loading}
+				loadingLabel="Loading investor data..."
+				isEmpty={!details}
+				emptyTitle="No investor data available yet"
+				emptyDescription="Settled investor positions and ownership details will appear here after buy orders complete and holdings are minted."
+			>
+				{details ? (
+					<>
+						<div className="mb-5 grid gap-4 md:grid-cols-3">
+							<AdminStatCard
+								label="Total investors"
+								value={details.totalInvestors}
+							/>
+							<AdminStatCard
+								label="Capital raised"
+								value={money(details.totalCapitalRaised)}
+							/>
+							<AdminStatCard
+								label="Tokens held"
+								value={Number(details.totalTokensHeld || 0).toLocaleString()}
+							/>
+						</div>
+
+						<div className="grid gap-4 xl:grid-cols-[1.35fr_0.65fr]">
+							<table className="min-w-full border-separate border-spacing-y-3">
+								<thead>
+									<tr className="text-left text-sm theme-text-secondary">
+										<th className="pb-2 font-medium uppercase tracking-[0.08em]">
+											Investor
+										</th>
+										<th className="pb-2 font-medium uppercase tracking-[0.08em]">
+											Amount invested
+										</th>
+										<th className="pb-2 font-medium uppercase tracking-[0.08em]">
+											Tokens
+										</th>
+										<th className="pb-2 font-medium uppercase tracking-[0.08em]">
+											Ownership %
+										</th>
+										<th className="pb-2 font-medium uppercase tracking-[0.08em]">
+											Status
+										</th>
+									</tr>
+								</thead>
+								<tbody>
+									{details.investors.map((investor) => (
+										<tr
+											key={investor.userId}
+											className="theme-card text-sm theme-text"
+										>
+											<td className="rounded-l-[18px] px-4 py-4 font-medium">
+												{investor.investorName}
+											</td>
+											<td className="px-4 py-4">
+												{money(investor.amountInvested)}
+											</td>
+											<td className="px-4 py-4">
+												{Number(investor.tokensHeld || 0).toLocaleString()}
+											</td>
+											<td className="px-4 py-4">
+												{Number(investor.ownershipPercentage || 0).toFixed(2)}%
+											</td>
+											<td className="rounded-r-[18px] px-4 py-4">
+												<AdminStatusBadge
+													label={investor.status}
+													tone={
+														investor.status?.toLowerCase() === 'completed'
+															? 'blue'
+															: 'gray'
+													}
+												/>
+											</td>
+										</tr>
+									))}
+								</tbody>
+							</table>
+
+							<div className="space-y-4">
+								<AdminSectionCard
+									title="Cap table"
+									description="Top 10 holders plus grouped remainder."
+								>
+									<div className="space-y-3">
+										{capTableRows.map((holder, index) => (
+											<div
+												key={holder.userId}
+												className="flex items-center justify-between rounded-[18px] border border-[#E7ECF4] bg-white px-4 py-3 shadow-[0_2px_8px_rgba(16,24,40,0.03)]"
+											>
+												<div>
+													<div className="text-sm font-semibold theme-heading">
+														#{index + 1} {holder.investorName}
+													</div>
+													<div className="text-xs theme-text-secondary">
+														{Number(holder.tokensHeld || 0).toLocaleString()}{' '}
+														tokens
+													</div>
+												</div>
+												<div className="text-sm font-semibold theme-heading">
+													{Number(holder.ownershipPercentage || 0).toFixed(2)}%
+												</div>
+											</div>
+										))}
+										{details.others ? (
+											<div className="rounded-[18px] border border-[#E7ECF4] bg-white px-4 py-3 shadow-[0_2px_8px_rgba(16,24,40,0.03)]">
+												<div className="text-sm font-semibold theme-heading">
+													Others
+												</div>
+												<div className="mt-1 text-xs theme-text-secondary">
+													{details.others.investorCount} investors •{' '}
+													{Number(
+														details.others.ownershipPercentage || 0,
+													).toFixed(2)}
+													%
+												</div>
+											</div>
+										) : (
+											<AdminEmptyState
+												title="No remainder holders"
+												description="All current investors are represented in the visible top-holder list."
+												className="px-4 py-6"
+											/>
+										)}
+									</div>
+								</AdminSectionCard>
+							</div>
+						</div>
+					</>
+				) : null}
+			</AdminDataTableShell>
+		</AppPageShell>
+	);
+}

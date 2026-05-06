@@ -1,0 +1,61 @@
+import { MigrationInterface, QueryRunner } from 'typeorm';
+
+export class FixProjectFileSnakeCaseColumns1776900000000 implements MigrationInterface {
+  name = 'FixProjectFileSnakeCaseColumns1776900000000';
+
+  public async up(queryRunner: QueryRunner): Promise<void> {
+    if (!(await queryRunner.hasTable('project_file'))) {
+      return;
+    }
+
+    // createdAt -> created_at
+    await queryRunner.query(`
+      ALTER TABLE "project_file"
+      RENAME COLUMN "createdAt" TO "created_at"
+    `).catch(() => undefined);
+
+    // updatedAt -> updated_at
+    await queryRunner.query(`
+      ALTER TABLE "project_file"
+      RENAME COLUMN "updatedAt" TO "updated_at"
+    `).catch(() => undefined);
+
+    // deletedAt -> deleted_at
+    await queryRunner.query(`
+      ALTER TABLE "project_file"
+      RENAME COLUMN "deletedAt" TO "deleted_at"
+    `).catch(() => undefined);
+
+    // projectId -> project_id
+    await queryRunner.query(`
+      ALTER TABLE "project_file"
+      RENAME COLUMN "projectId" TO "project_id"
+    `).catch(() => undefined);
+  }
+
+  public async down(queryRunner: QueryRunner): Promise<void> {
+    if (!(await queryRunner.hasTable('project_file'))) {
+      return;
+    }
+
+    await queryRunner.query(`
+      ALTER TABLE "project_file"
+      RENAME COLUMN "created_at" TO "createdAt"
+    `).catch(() => undefined);
+
+    await queryRunner.query(`
+      ALTER TABLE "project_file"
+      RENAME COLUMN "updated_at" TO "updatedAt"
+    `).catch(() => undefined);
+
+    await queryRunner.query(`
+      ALTER TABLE "project_file"
+      RENAME COLUMN "deleted_at" TO "deletedAt"
+    `).catch(() => undefined);
+
+    await queryRunner.query(`
+      ALTER TABLE "project_file"
+      RENAME COLUMN "project_id" TO "projectId"
+    `).catch(() => undefined);
+  }
+}

@@ -1,0 +1,535 @@
+import { useCallback, useEffect, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+
+import Button from '@/components/common/button';
+import Loader from '@/components/common/loader';
+import Header from '@/components/layout/header';
+import BuyTokensModal from '@/components/modal/buy-tokens-modal';
+import DetailCard from '@/components/project/detail-card';
+import {
+	ISSUER_ADDRESS,
+	STELLAR_EXPLORER_URL,
+} from '@/constants/common/environment';
+import { SOROBAN_TOKEN_EXPONENT } from '@/constants/common/stellar';
+import { UserType } from '@/constants/enum/user-type.enum';
+import { PATHS } from '@/constants/routes/paths';
+import useUserTypeLabel from '@/hooks/common/useUserTypeLabel';
+import { useSimpleSigner } from '@/hooks/stellar/useSimpleSigner';
+import { IProject } from '@/interfaces/api/IProject';
+import { ICreateTransfer } from '@/interfaces/services/IContractService';
+import { contractService } from '@/services/contract.service';
+import { notificationService } from '@/services/notification.service';
+import { projectService } from '@/services/project.service';
+import { stellarService } from '@/services/stellar.service';
+import { useStellarStore } from '@/store/stellar.store';
+import { useUserStore } from '@/store/user.store';
+import { formatBooleanAsString } from '@/utils/format-boolean-as-string';
+import { shortenStellarAddress } from '@/utils/shorten-stellar-address';
+
+interface IProjectParams extends Record<string, string> {
+	projectId: string;
+}
+
+const Project = () => {
+	const { user } = useUserStore();
+	const { userTypeLabel } = useUserTypeLabel({ userType: user?.type });
+	const { projectId } = useParams<IProjectParams>();
+	const navigate = useNavigate();
+	const { selectedClientPublicKey } = useStellarStore();
+	const { publicKey, handleSignTransaction } = useSimpleSigner();
+
+	const [project, setProject] = useState<IProject | null>(null);
+	const [isLoading, setIsLoading] = useState<boolean>(true);
+	const [isLoadingButton, setIsLoadingButton] = useState<boolean>(false);
+	const [isBuyTokensModalOpen, setIsBuyTokensModalOpen] =
+		useState<boolean>(false);
+	const [isTrustlineChecked, setIsTrustlineChecked] = useState<boolean>(false);
+
+	const handleGetProject = useCallback(async () => {
+		if (!projectId) return;
+
+		try {
+			setIsLoading(true);
+			const { data } = await projectService.getProject(projectId);
+			setProject({
+				...data.attributes,
+				id: data.id,
+			});
+		} catch (error) {
+			console.error(error);
+			notificationService.error('An error occurred while fetching project');
+		} finally {
+			setIsLoading(false);
+		}
+	}, [projectId]);
+
+	const handleCheckTrustline = useCallback(async () => {
+		if (!project) return;
+
+		if (user?.type === UserType.WEALTH_MANAGER && !selectedClientPublicKey) {
+			notificationService.error('Please select a client');
+			navigate(PATHS.DASHBOARD);
+			return;
+		}
+
+		if (!publicKey) {
+			notificationService.error(
+				'Please connect your wallet to check the trustline',
+			);
+			navigate(PATHS.CASH_ACCOUNT);
+			return;
+		}
+
+		const walletAddress =
+			user?.type === UserType.WEALTH_MANAGER
+				? selectedClientPublicKey
+				: publicKey;
+
+		try {
+			setIsLoadingButton(true);
+
+			const isTrustlineAdded = await stellarService.checkTrustline(
+				walletAddress,
+				ISSUER_ADDRESS,
+				safeTokenSymbol,
+			);
+
+			if (isTrustlineAdded) {
+				setIsTrustlineChecked(true);
+				notificationService.success('Trustline already added');
+				return;
+			}
+
+			const transactionXdr =
+				await stellarService.createAddTrustlineTransactionXdr(
+					walletAddress,
+					ISSUER_ADDRESS,
+					safeTokenSymbol,
+				);
+
+			const signedTransactionXdr = await handleSignTransaction(
+				transactionXdr,
+				'Add trustline to token',
+			);
+
+			await stellarService.submitTransactionXdr(signedTransactionXdr);
+
+			notificationService.success('Trustline added successfully');
+			setIsTrustlineChecked(true);
+		} catch (error) {
+			console.error(error);
+			notificationService.error('An error occurred while checking trustline');
+		} finally {
+			setIsLoadingButton(false);
+		}
+	}, [
+		project,
+		user?.type,
+		selectedClientPublicKey,
+		publicKey,
+		navigate,
+		handleSignTransaction,
+	]);
+
+	const handleBuyTokens = useCallback(
+		async (buyTokensFields: ICreateTransfer) => {
+			if (!projectId || !project) return;
+
+			if (user?.type === UserType.WEALTH_MANAGER && !selectedClientPublicKey) {
+				notificationService.error('Please select a client');
+				navigate(PATHS.DASHBOARD);
+				return;
+			}
+
+			try {
+				setIsLoadingButton(true);
+
+				const {
+					data: {
+						attributes: { transactionXdr },
+					},
+				} = await contractService.createTransferXdr({
+					...buyTokensFields,
+					amount: buyTokensFields.amount,
+				});
+
+				const signedTransactionXdr = await handleSignTransaction(
+					transactionXdr,
+					'Buy tokens',
+				);
+
+				await contractService.submitTransferSignedXdr({
+					signedXdr: signedTransactionXdr,
+					projectUuid: projectId,
+					amount: buyTokensFields.amount,
+					buyerAddress:
+						user?.type === UserType.WEALTH_MANAGER
+							? selectedClientPublicKey
+							: publicKey,
+				});
+
+				notificationService.success('Tokens bought successfully');
+				setIsBuyTokensModalOpen(false);
+				await handleGetProject();
+			} catch (error) {
+				console.error(error);
+				notificationService.error('An error occurred while buying tokens');
+			} finally {
+				setIsLoadingButton(false);
+			}
+		},
+		[
+			project,
+			projectId,
+			user?.type,
+			selectedClientPublicKey,
+			navigate,
+			publicKey,
+			handleSignTransaction,
+			handleGetProject,
+		],
+	);
+
+	useEffect(() => {
+		handleGetProject();
+	}, [handleGetProject]);
+
+	if (isLoading) {
+		return (
+			<div className="flex h-full w-full items-center justify-center">
+				<Loader />
+			</div>
+		);
+	}
+
+	if (!project) {
+		return (
+			<div
+				className="flex h-full w-full flex-col items-center justify-center"
+				data-test="project-not-found"
+			>
+				<h3 className="text-xl font-semibold">
+					We couldn't retrieve this project
+				</h3>
+				<p>Please try again later.</p>
+			</div>
+		);
+	}
+
+	const percentFunded = Math.max(
+		0,
+		Math.min(100, Number(project.percentFunded ?? 0)),
+	);
+	const raisedAmount = Number(project.raisedAmount ?? 0);
+	const fundingGoal = Number(project.fundingGoal ?? 0);
+	const remainingSupply = Number(project.remainingSupply ?? 0);
+	const tokenPrice = 1;
+	const tokenSupply = Number(project.tokenSupply ?? 0) / SOROBAN_TOKEN_EXPONENT;
+	const unitsSold = Math.max(0, tokenSupply - remainingSupply);
+	const remainingDollarValue = remainingSupply * tokenPrice;
+
+	const status =
+		percentFunded >= 100
+			? 'Funded'
+			: percentFunded > 0
+			? 'Raising'
+			: 'Not started';
+
+	const statusClasses =
+		status === 'Funded'
+			? 'bg-green-100 text-green-700'
+			: status === 'Raising'
+			? 'bg-yellow-100 text-yellow-700'
+			: 'bg-red-100 text-red-700';
+
+	const safeProjectName = project?.name ?? 'Untitled Project';
+	const safeTokenSymbol = project?.tokenSymbol ?? 'TOKEN';
+	const safeTokenAddress = project?.tokenAddress ?? '';
+	const safeOwnerAddress = project?.ownerAddress ?? '';
+	const safeDescription = project?.description ?? 'No description provided';
+	const safeClimateImpact = project?.climateImpact ?? 'Not provided';
+	const safeLocation = project?.location ?? 'Not provided';
+	const safeStartDate: Date = project?.startDate
+		? new Date(project.startDate)
+		: new Date();
+	const safeEndDate: Date = project?.endDate
+		? new Date(project.endDate)
+		: new Date();
+
+	const displayPercent =
+		percentFunded > 0 && percentFunded < 1 ? '<1' : percentFunded.toFixed(0);
+
+	return (
+		<div className="mb-4 flex flex-col gap-y-4" data-test="project-page">
+			<Header title={safeProjectName} description={userTypeLabel} />
+
+			<div className="rounded-xl bg-white px-5 py-5 shadow">
+				<div className="mb-3 flex items-center justify-between">
+					<h2 className="text-lg font-semibold text-gray-900">
+						${raisedAmount.toLocaleString()} / ${fundingGoal.toLocaleString()}{' '}
+						raised
+					</h2>
+
+					<span
+						className={`rounded-full px-3 py-1 text-sm font-medium ${statusClasses}`}
+					>
+						{status}
+					</span>
+				</div>
+
+				<div className="h-3 w-full rounded-full bg-gray-200">
+					<div
+						className="h-3 rounded-full bg-primary transition-all duration-300"
+						style={{ width: `${percentFunded}%` }}
+					/>
+				</div>
+
+				<div className="mt-2 text-sm text-gray-500">
+					{displayPercent}% funded
+				</div>
+			</div>
+
+			<div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+				<div className="rounded-xl bg-white p-4 shadow">
+					<p className="mb-1 text-sm text-gray-500">Raised</p>
+					<p className="text-xl font-semibold">
+						${raisedAmount.toLocaleString()}
+					</p>
+				</div>
+
+				<div className="rounded-xl bg-white p-4 shadow">
+					<p className="mb-1 text-sm text-gray-500">Goal</p>
+					<p className="text-xl font-semibold">
+						${fundingGoal.toLocaleString()}
+					</p>
+				</div>
+
+				<div className="rounded-xl bg-white p-4 shadow">
+					<p className="mb-1 text-sm text-gray-500">Units Remaining</p>
+					<p className="text-xl font-semibold">
+						{remainingSupply.toLocaleString()}
+					</p>
+					<p className="mt-1 text-sm text-gray-500">
+						${remainingDollarValue.toLocaleString()}
+					</p>
+				</div>
+
+				<div className="rounded-xl bg-white p-4 shadow">
+					<p className="mb-1 text-sm text-gray-500">Min Investment</p>
+					<p className="text-xl font-semibold">
+						${tokenPrice.toLocaleString()}
+					</p>
+				</div>
+			</div>
+
+			<div className="mb-2 flex w-full flex-col gap-4 rounded-xl bg-white px-4 pt-4 shadow lg:flex-row">
+				<p className="cursor-pointer border-b-2 border-custom-grey pb-3 font-semibold">
+					About
+				</p>
+			</div>
+
+			{user?.type !== UserType.CLIMATE_DEVELOPER && (
+				<div className="mb-2 flex w-full gap-x-3">
+					{!isTrustlineChecked ? (
+						<Button
+							className="w-[min(25rem,100%)] bg-custom-dark-blue text-white shadow-lg"
+							dataTest="check-trustline-button"
+							onClick={handleCheckTrustline}
+							isLoading={isLoadingButton}
+							disabled={isLoadingButton}
+						>
+							Check trustline
+						</Button>
+					) : (
+						<Button
+							className="w-[min(24rem,100%)] bg-custom-dark-blue text-white shadow-lg"
+							dataTest="buy-tokens-button"
+							onClick={() => setIsBuyTokensModalOpen(true)}
+							isLoading={isLoadingButton}
+							disabled={isLoadingButton}
+						>
+							Buy tokens
+						</Button>
+					)}
+				</div>
+			)}
+
+			<div className="flex flex-col gap-4 xl:flex-row">
+				<DetailCard
+					dataTest="token-details-card"
+					cardTitle="Token details"
+					items={[
+						{
+							label: 'Symbol',
+							value: safeTokenSymbol,
+							dataTest: 'token-symbol',
+							linkTo: `${STELLAR_EXPLORER_URL}/asset/${safeTokenAddress}`,
+						},
+						{
+							label: 'Token address',
+							value: safeTokenAddress
+								? shortenStellarAddress(safeTokenAddress)
+								: 'Not available',
+							dataTest: 'token-address',
+						},
+						{
+							label: 'Owner',
+							value: safeOwnerAddress
+								? shortenStellarAddress(safeOwnerAddress)
+								: 'Not available',
+							dataTest: 'token-owner-address',
+						},
+						{
+							label: 'Token price',
+							value: `$${tokenPrice.toLocaleString()}`,
+							dataTest: 'token-price',
+						},
+						{
+							label: 'Total units',
+							value: tokenSupply.toLocaleString(),
+							dataTest: 'token-total-units',
+						},
+						{
+							label: 'Units remaining',
+							value: `${remainingSupply.toLocaleString()} units`,
+							dataTest: 'token-units-remaining',
+						},
+					]}
+				/>
+
+				<DetailCard
+					dataTest="project-details-card"
+					cardTitle="Project details"
+					items={[
+						{
+							label: 'Description',
+							value: safeDescription,
+							dataTest: 'project-description',
+						},
+						{
+							label: 'Dates',
+							value: `${safeStartDate.toLocaleDateString()} - ${safeEndDate.toLocaleDateString()}`,
+							dataTest: 'project-dates',
+						},
+						{
+							label: 'Climate impact',
+							value: safeClimateImpact,
+							dataTest: 'project-climate-impact',
+						},
+						{
+							label: 'Location',
+							value: safeLocation,
+							dataTest: 'project-location',
+						},
+						{
+							label: 'Funding goal',
+							value: `$${fundingGoal.toLocaleString()}`,
+							dataTest: 'project-funding-goal',
+						},
+						{
+							label: 'Generates carbon credits?',
+							value: formatBooleanAsString(project.generatesCarbonCredits),
+							dataTest: 'project-generates-carbon-credits',
+						},
+					]}
+				/>
+
+				<DetailCard
+					dataTest="raise-details-card"
+					cardTitle="Raise details"
+					items={[
+						{
+							label: 'Min investment',
+							value: `$${tokenPrice.toLocaleString()}`,
+							dataTest: 'raise-min-investment',
+						},
+						{
+							label: 'Total units',
+							value: tokenSupply.toLocaleString(),
+							dataTest: 'raise-total-units',
+						},
+						{
+							label: 'Units sold',
+							value: unitsSold.toLocaleString(),
+							dataTest: 'raise-units-sold',
+						},
+						{
+							label: 'Units remaining',
+							value: `${remainingSupply.toLocaleString()} units`,
+							dataTest: 'raise-units-remaining',
+						},
+						{
+							label: 'Remaining value',
+							value: `$${remainingDollarValue.toLocaleString()}`,
+							dataTest: 'raise-remaining-value',
+						},
+						{
+							label: 'Status',
+							value: status,
+							dataTest: 'raise-status',
+						},
+					]}
+				/>
+			</div>
+
+			<div className="rounded-xl bg-white p-6 shadow">
+				<h3 className="mb-4 text-lg font-semibold">Documents & Agreements</h3>
+
+				<div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+					<a
+						href="#"
+						className="rounded-lg border p-4 transition-colors hover:border-primary"
+					>
+						<p className="font-medium text-gray-900">
+							Project Information Memorandum
+						</p>
+						<p className="mt-1 text-sm text-gray-500">PDF document</p>
+					</a>
+
+					<a
+						href="#"
+						className="rounded-lg border p-4 transition-colors hover:border-primary"
+					>
+						<p className="font-medium text-gray-900">Subscription Agreement</p>
+						<p className="mt-1 text-sm text-gray-500">PDF document</p>
+					</a>
+
+					<a
+						href="#"
+						className="rounded-lg border p-4 transition-colors hover:border-primary"
+					>
+						<p className="font-medium text-gray-900">
+							Power Purchase Agreement
+						</p>
+						<p className="mt-1 text-sm text-gray-500">PDF document</p>
+					</a>
+
+					<a
+						href="#"
+						className="rounded-lg border p-4 transition-colors hover:border-primary"
+					>
+						<p className="font-medium text-gray-900">Financial Model Summary</p>
+						<p className="mt-1 text-sm text-gray-500">PDF document</p>
+					</a>
+				</div>
+			</div>
+
+			<BuyTokensModal
+				isOpen={isBuyTokensModalOpen}
+				onSubmit={handleBuyTokens}
+				closeModal={() => setIsBuyTokensModalOpen(false)}
+				investorAddress={
+					user?.type === UserType.WEALTH_MANAGER
+						? selectedClientPublicKey || ''
+						: publicKey || ''
+				}
+				tokenAddress={ISSUER_ADDRESS}
+				tokenPrice={tokenPrice}
+				tokenSymbol={safeTokenSymbol}
+				projectName={safeProjectName}
+			/>
+		</div>
+	);
+};
+
+export default Project;

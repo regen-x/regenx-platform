@@ -1,0 +1,1125 @@
+import { MapPin, Search } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { useParams } from 'react-router-dom';
+
+import BuyTokensModal from '@/components/modal/buy-tokens-modal';
+import NotificationBell from '@/components/notifications/NotificationBell';
+import { ISSUER_ADDRESS } from '@/constants/common/environment';
+import { useSimpleSigner } from '@/hooks/stellar/useSimpleSigner';
+import {
+	IDistribution,
+	IDistributionProjectSummary,
+} from '@/interfaces/api/IDistribution';
+import { distributionService } from '@/services/distribution.service';
+import { investorVerificationService } from '@/services/investorVerification.service';
+import { notificationService } from '@/services/notification.service';
+import { ownershipService } from '@/services/ownership.service';
+import { projectService } from '@/services/project.service';
+import { useUserStore } from '@/store/user.store';
+import {
+	DseType,
+	formatCurrency,
+	formatPlain,
+	formatTermYears,
+	getDseBannerClasses,
+	getDseMeaning,
+	getDseSummary,
+	getDseWhyFundingNeeded,
+	normalizeDseType,
+	toNumber,
+} from '@/utils/dse';
+import { emitHoldingsUpdated } from '@/utils/events';
+
+type Project = Record<string, any>;
+type InvestorAccessSnapshot = {
+	canInvest?: boolean;
+	isEligible?: boolean;
+	eligibilitySource?: 'real_compliance' | 'test_override' | 'none';
+	verificationOverrideMode?: 'none' | 'testnet';
+	sumsubStatus?: string;
+	adminReviewStatus?: string;
+	isTestVerification?: boolean;
+	testVerificationActive?: boolean;
+	testOverrideActive?: boolean;
+	verificationSource?: string | null;
+	wholesaleVerificationSource?: string | null;
+};
+
+function getFallbackImage(project: Project) {
+	const name = String(project?.name || '').toLowerCase();
+
+	if (name.includes('ev')) return '/images/eliot.png';
+	if (name.includes('battery') || name.includes('bess'))
+		return '/images/eliot.png';
+	if (name.includes('solar')) return '/images/eliot.png';
+
+	return '/images/eliot.png';
+}
+
+function InfoBox({ label, value }: { label: string; value: string }) {
+	if (!String(value || '').trim() || value === '—') return null;
+
+	return (
+		<div className="rounded-[12px] bg-[#F7F8FB] px-4 py-3">
+			<div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8FA0B8]">
+				{label}
+			</div>
+			<div className="mt-2 text-[16px] font-semibold text-[#1B2F56]">
+				{value}
+			</div>
+		</div>
+	);
+}
+
+function SidebarMetric({
+	label,
+	value,
+	highlight = false,
+}: {
+	label: string;
+	value: string;
+	highlight?: boolean;
+}) {
+	if (!String(value || '').trim() || value === '—') return null;
+
+	return (
+		<div
+			className={`rounded-[14px] border px-4 py-4 ${
+				highlight
+					? 'border-[#D7E3FF] bg-[#F4F8FF]'
+					: 'border-[#E7ECF4] bg-[#F7F8FB]'
+			}`}
+		>
+			<div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#8FA0B8]">
+				{label}
+			</div>
+			<div
+				className={`mt-2 text-[18px] font-semibold ${
+					highlight ? 'text-[#123DA8]' : 'text-[#1B2F56]'
+				}`}
+			>
+				{value}
+			</div>
+		</div>
+	);
+}
+
+function formatMoney(value?: number | null, currency = 'AUD') {
+	return value == null || Number.isNaN(Number(value))
+		? 'Unavailable'
+		: new Intl.NumberFormat('en-AU', {
+				style: 'currency',
+				currency,
+				maximumFractionDigits: 2,
+		  }).format(Number(value));
+}
+
+function formatPercent(value?: number | null) {
+	return value == null || Number.isNaN(Number(value))
+		? 'Unavailable'
+		: `${Number(value).toFixed(2)}%`;
+}
+
+function StructuredBlock({
+	title,
+	items,
+	accentClass,
+}: {
+	title: string;
+	items: string[];
+	accentClass: string;
+}) {
+	const filtered = items.filter(Boolean);
+	if (filtered.length === 0) return null;
+
+	return (
+		<div
+			className={`rounded-[18px] border border-[#E7ECF4] bg-white p-5 shadow-[0_2px_8px_rgba(16,24,40,0.03)] border-l-4 ${accentClass}`}
+		>
+			<h3 className="text-[16px] font-semibold text-[#163F74]">{title}</h3>
+			<div className="mt-3 space-y-2.5">
+				{filtered.map((item, idx) => (
+					<div key={idx} className="flex gap-2.5">
+						<div className="mt-[8px] h-1.5 w-1.5 rounded-full bg-[#5F6C86]" />
+						<p className="text-[13px] leading-[1.6] text-[#5F6C86]">{item}</p>
+					</div>
+				))}
+			</div>
+		</div>
+	);
+}
+
+export default function OpportunityDetail() {
+	const { user } = useUserStore();
+	const { id } = useParams();
+	const { publicKey, handleConnectWallet, handleSignTransaction } =
+		useSimpleSigner();
+
+	const [project, setProject] = useState<Project | null>(null);
+	const [loading, setLoading] = useState(true);
+	const [error, setError] = useState(false);
+	const [isBuyTokensModalOpen, setIsBuyTokensModalOpen] = useState(false);
+	const [investmentAmountAud, setInvestmentAmountAud] = useState(25000);
+	const [imageError, setImageError] = useState(false);
+	const [expandedSummary, setExpandedSummary] = useState(false);
+	const [showRpa, setShowRpa] = useState(false);
+	const [canInvest, setCanInvest] = useState<boolean | null>(null);
+	const [verificationGateMessage, setVerificationGateMessage] = useState('');
+	const [testVerificationActive, setTestVerificationActive] = useState(false);
+	const [projectDistributions, setProjectDistributions] = useState<
+		IDistribution[]
+	>([]);
+	const [projectDistributionSummary, setProjectDistributionSummary] =
+		useState<IDistributionProjectSummary | null>(null);
+
+	const activeWalletAddress = publicKey || user?.walletAddress || '';
+	const projectStatusNormalized = String(project?.status || '').toLowerCase();
+
+	const statusMeta =
+		projectStatusNormalized === 'approved'
+			? {
+					label: 'Approved',
+					message:
+						'This project has been approved and is visible to investors. Investment opens once it goes live.',
+					className: 'bg-[#EEF4FF] text-[#1D4ED8]',
+			  }
+			: projectStatusNormalized === 'issued'
+			? {
+					label: 'Issued',
+					message:
+						'Tokens have been issued. This opportunity is preparing for live investment.',
+					className: 'bg-[#F0FDF4] text-[#166534]',
+			  }
+			: projectStatusNormalized === 'live'
+			? {
+					label: 'Live',
+					message: '',
+					className: 'bg-[#ECFDF5] text-[#047857]',
+			  }
+			: {
+					label: projectStatusNormalized || 'Unknown',
+					message: '',
+					className: 'bg-[#F3F4F6] text-[#374151]',
+			  };
+
+	useEffect(() => {
+		const load = async () => {
+			try {
+				if (!id) {
+					setProject(null);
+					setError(true);
+					return;
+				}
+
+				const item = await projectService.getPublicProject(id);
+				setProject(item || null);
+				setImageError(false);
+			} catch (err) {
+				console.error('Failed to load opportunity detail:', err);
+				setError(true);
+			} finally {
+				setLoading(false);
+			}
+		};
+
+		load();
+	}, [id]);
+
+	useEffect(() => {
+		const loadEligibility = async () => {
+			if (!user?.id) {
+				setCanInvest(null);
+				setVerificationGateMessage('');
+				setTestVerificationActive(false);
+				return;
+			}
+
+			try {
+				const access: InvestorAccessSnapshot =
+					await investorVerificationService.canInvest(
+					String(user.id),
+					);
+				const eligible = Boolean(access?.canInvest);
+				setCanInvest(eligible);
+				setTestVerificationActive(
+					Boolean(
+						access?.verificationOverrideMode === 'testnet' ||
+							access?.testOverrideActive ||
+							access?.testVerificationActive,
+					),
+				);
+
+				if (eligible) {
+					setVerificationGateMessage('');
+					return;
+				}
+
+				if (
+					access?.sumsubStatus === 'approved' &&
+					access?.adminReviewStatus === 'pending'
+				) {
+					setVerificationGateMessage(
+						'Your automated verification is complete. RegenX admin approval is still pending before you can invest.',
+					);
+					return;
+				}
+
+				setVerificationGateMessage(
+					'Investment access is still locked until investor verification is fully approved.',
+				);
+			} catch (err) {
+				console.error('Failed to load investor eligibility', err);
+				setCanInvest(false);
+				setTestVerificationActive(false);
+				setVerificationGateMessage(
+					'Investment access is currently unavailable until verification status can be confirmed.',
+				);
+			}
+		};
+
+		void loadEligibility();
+	}, [user?.id]);
+
+	useEffect(() => {
+		const loadDistributions = async () => {
+			if (!id || !user?.id) {
+				setProjectDistributions([]);
+				setProjectDistributionSummary(null);
+				return;
+			}
+
+			try {
+				const [records, summary] = await Promise.all([
+					distributionService.getProjectDistributions(id),
+					distributionService.getMySummary(),
+				]);
+
+				setProjectDistributions(Array.isArray(records) ? records : []);
+				const matchedSummary =
+					summary?.byProject?.find(
+						(item) => Number(item.projectId) === Number(id),
+					) ?? null;
+				setProjectDistributionSummary(matchedSummary);
+			} catch (error) {
+				console.error('Failed to load project distributions', error);
+				setProjectDistributions([]);
+				setProjectDistributionSummary(null);
+			}
+		};
+
+		void loadDistributions();
+	}, [id, user?.id]);
+
+	const detail = useMemo(() => {
+		const p = project || {};
+		const payload = p.payloadJson || {};
+		const revenue = p.revenueModel || payload.revenueModel || {};
+		const investor = p.investorStructure || payload.investorStructure || {};
+		const capital = p.capitalStructure || payload.capitalStructure || {};
+		const risks = p.risks || payload.risks || {};
+		const battery = p.battery || payload.battery || {};
+		const token = p.tokenStructure || payload.tokenStructure || {};
+
+		const dseType: DseType = normalizeDseType(
+			p.dseType || payload.dseType || payload.tokenStructure?.dseType,
+		);
+
+		const targetYield =
+			p.targetAnnualYield ??
+			investor.targetAnnualYieldExpectation ??
+			payload.targetAnnualYield ??
+			0;
+
+		const targetIrr =
+			p.targetIrr ??
+			p.targetIRR ??
+			investor.targetIrrExpectation ??
+			payload.targetIrr ??
+			payload.targetIRR ??
+			0;
+
+		const minInvestment =
+			p.minimumInvestment ??
+			capital.minimumInvestment ??
+			payload.minimumInvestment ??
+			0;
+
+		const fundingGoal =
+			p.fundingGoal ??
+			capital.fundingGoal ??
+			payload.fundingGoal ??
+			p.totalProjectCapex ??
+			0;
+
+		const amountSettled =
+			p.amountSettled ??
+			p.fundedSoFar ??
+			payload.amountSettled ??
+			payload.fundedSoFar ??
+			0;
+		const unitsSold =
+			p.unitsSold ?? p.purchasedAmount ?? payload.unitsSold ?? 0;
+		const unitsRemaining =
+			p.unitsRemaining ?? p.remainingSupply ?? payload.unitsRemaining ?? 0;
+		const investorCount = p.investorCount ?? payload.investorCount ?? 0;
+
+		const fundingGoalNum = toNumber(fundingGoal);
+		const amountSettledNum = toNumber(amountSettled);
+		const unitsSoldNum = toNumber(unitsSold);
+		const unitsRemainingNum = toNumber(unitsRemaining);
+		const investorCountNum = toNumber(investorCount);
+		const fundingProgressPct =
+			fundingGoalNum > 0
+				? Math.min(
+						100,
+						toNumber(p.percentFunded) ||
+							(amountSettledNum / fundingGoalNum) * 100,
+				  )
+				: 0;
+
+		const fallbackImage = getFallbackImage(p);
+
+		const image = p.thumbnailUrl || payload.thumbnailUrl || fallbackImage;
+
+		const expectedOperationalDate =
+			p.expectedOperationalDate ||
+			payload.expectedOperationalDate ||
+			payload.codDate ||
+			payload.commercialOperationDate ||
+			'';
+
+		const projectType =
+			p.projectType || payload.projectType || 'Climate Infrastructure Asset';
+
+		return {
+			id: p.id,
+			name: p.name || 'Opportunity Detail',
+			image,
+			location:
+				p.location ||
+				payload.location ||
+				payload.siteAddress ||
+				'Location unavailable',
+			summary:
+				p.investmentSummary ||
+				p.description ||
+				payload.investmentSummary ||
+				'Approved climate infrastructure opportunity.',
+			dseType,
+			dseSummary: getDseSummary(dseType),
+			dseMeaning: getDseMeaning(dseType),
+			whyFunding: getDseWhyFundingNeeded(dseType),
+			yield: toNumber(targetYield),
+			irr: toNumber(targetIrr),
+			minInvestment: toNumber(minInvestment),
+			fundingGoal: fundingGoalNum,
+			amountSettled: amountSettledNum,
+			fundingProgressPct,
+			investorCount: investorCountNum,
+			unitsSold: unitsSoldNum,
+			unitsRemaining: unitsRemainingNum,
+			termYears: toNumber(
+				p.investmentTermYears || investor.maximumTermYears || 0,
+			),
+			projectType,
+			stage: p.stage || payload.stage || dseType,
+			jurisdiction: p.jurisdiction || payload.jurisdiction || 'Australia',
+			revenueModelType: revenue.revenueModelType || '',
+			agreementType: revenue.agreementType || '',
+			contractYears: revenue.contractLengthYears || '',
+			counterparty: revenue.primaryCounterparty || '',
+			paymentFrequency:
+				revenue.paymentFrequency || investor.distributionFrequency || '',
+			gridConnectionStatus:
+				p.gridConnectionStatus || payload.gridConnectionStatus || '',
+			returnType: investor.returnType || '',
+			tokenName: token.tokenName || '',
+			tokenSymbol: p.assetCode || p.tokenSymbol || token.tokenSymbol || 'TOKEN',
+			assetCode: p.assetCode || p.tokenSymbol || token.tokenSymbol || '',
+			assetIssuer: p.assetIssuer || '',
+			distributorWalletPublic: p.distributorWalletPublic || '',
+			projectStatus: p.status || 'draft',
+			seriesId: Number(p.seriesId || payload.seriesId || 0) || 0,
+			totalTokenSupply: token.totalTokenSupply || '',
+			distributionMethod: token.distributionMethod || '',
+			durationHours: battery.durationHours || '',
+			powerCapacityMw: battery.powerCapacityMw || '',
+			energyCapacityMwh: battery.energyCapacityMwh || '',
+			riskMitigants: risks.riskMitigants || '',
+			marketRiskLevel: risks.marketRiskLevel || '',
+			counterpartyRiskLevel: risks.counterpartyRiskLevel || '',
+			technologyRiskLevel: risks.technologyRiskLevel || '',
+			tokenPrice: 1,
+			buildStage:
+				p.buildStage || payload.buildStage || payload.constructionStage || '',
+			expectedOperationalDate,
+		};
+	}, [project]);
+
+	const showTestVerificationBanner =
+		import.meta.env.MODE !== 'production' && testVerificationActive;
+
+	const handleBuyTokens = async (payload: any) => {
+		try {
+			const amount = Number(payload?.tokenAmount ?? payload?.amount ?? 0);
+			const cashAmount = Number(payload?.cashAmount ?? 0);
+			const feeAmount = Number(payload?.feeAmount ?? 0);
+
+			if (!Number.isFinite(amount) || amount <= 0) {
+				throw new Error('Invalid amount');
+			}
+
+			const tokenSymbol =
+				project?.assetCode ||
+				project?.tokenSymbol ||
+				project?.token_symbol ||
+				payload?.tokenSymbol ||
+				'TOKEN';
+			const assetCode = project?.assetCode || payload?.assetCode || tokenSymbol;
+			const assetIssuer = project?.assetIssuer || payload?.assetIssuer || null;
+			const sellerWalletAddress =
+				project?.distributorWalletPublic ||
+				payload?.distributorWalletPublic ||
+				null;
+
+			const seriesId = Number(
+				project?.seriesId ?? payload?.seriesId ?? project?.series_id ?? 0,
+			);
+
+			if (String(project?.status ?? 'draft') !== 'live') {
+				throw new Error('This project is not live for investment yet.');
+			}
+
+			if (!assetCode || !assetIssuer) {
+				throw new Error('Project asset metadata is incomplete');
+			}
+
+			if (!sellerWalletAddress) {
+				throw new Error('Project inventory wallet is not configured');
+			}
+
+			if (!seriesId) {
+				throw new Error('Project series is not configured');
+			}
+
+			await ownershipService.buyPosition({
+				projectId: Number(project?.id),
+				seriesId,
+				tokenSymbol,
+				amount,
+				cashAmount,
+				feeAmount,
+				custodyType: 'regenx_custody',
+				sellerWalletAddress,
+			});
+
+			notificationService.success(
+				'Investment order submitted successfully through RegenX managed custody.',
+			);
+
+			emitHoldingsUpdated?.();
+		} catch (error) {
+			console.error('Buy failed', error);
+			throw error;
+		}
+	};
+
+	if (loading) {
+		return (
+			<div className="min-h-full w-full bg-[#F7F8FB] px-4 py-4">
+				<div className="max-w-[1220px]">
+					<div className="rounded-[18px] border border-[#E7ECF4] bg-white p-6 shadow-[0_2px_8px_rgba(16,24,40,0.03)]">
+						<p className="text-[14px] text-[#5F6C86]">
+							Loading opportunity detail...
+						</p>
+					</div>
+				</div>
+			</div>
+		);
+	}
+
+	if (error || !project) {
+		return (
+			<div className="min-h-full w-full bg-[#F7F8FB] px-4 py-4">
+				<div className="max-w-[1220px]">
+					<div className="rounded-[18px] border border-[#F3D2D2] bg-white p-6 shadow-[0_2px_8px_rgba(16,24,40,0.03)]">
+						<p className="text-[14px] font-medium text-[#B42318]">
+							Failed to load opportunity detail.
+						</p>
+					</div>
+				</div>
+			</div>
+		);
+	}
+
+	const bannerClass = getDseBannerClasses(detail.dseType);
+
+	return (
+		<div className="min-h-full w-full bg-[#F7F8FB] px-4 py-4">
+			<div className="max-w-[1220px]">
+				<div className="mb-4 flex items-start justify-between border-b border-[#E9EDF4] pb-4">
+					<div>
+						<div className="inline-flex rounded-[8px] bg-[#DDEBFF] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#346FB6]">
+							Investor Portal
+						</div>
+						<h1 className="mt-3 text-[34px] font-semibold tracking-[-0.03em] text-[#16588F]">
+							Opportunity Detail
+						</h1>
+					</div>
+
+					<div className="flex items-center gap-3">
+						<div className="flex h-[46px] w-[250px] items-center gap-2 rounded-[12px] border border-[#E7ECF4] bg-white px-4 shadow-[0_1px_4px_rgba(16,24,40,0.03)]">
+							<Search className="h-4 w-4 text-[#7D8BA2]" />
+							<input
+								type="text"
+								placeholder="Search opportunities..."
+								className="w-full bg-transparent text-[14px] text-[#1B2F56] outline-none placeholder:text-[#9AA7BC]"
+							/>
+						</div>
+
+						<NotificationBell buttonClassName="border-[#E7ECF4] bg-white text-[#5F6C86] shadow-[0_1px_4px_rgba(16,24,40,0.03)]" />
+
+						<div className="flex h-10 w-10 items-center justify-center rounded-[10px] bg-[#DDEBFF] text-[13px] font-semibold text-[#346FB6]">
+							IL
+						</div>
+					</div>
+				</div>
+
+				<div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.95fr_0.95fr]">
+					<div>
+						<div className="overflow-hidden rounded-[18px] border border-[#E7ECF4] bg-white shadow-[0_2px_8px_rgba(16,24,40,0.03)]">
+							<div className="relative h-[440px] bg-[#DCE8F8]">
+								{!imageError ? (
+									<img
+										src={detail.image}
+										alt={detail.name}
+										className="h-full w-full object-cover"
+										onError={() => setImageError(true)}
+									/>
+								) : (
+									<div className="h-full w-full bg-[linear-gradient(135deg,#DCE8F8_0%,#C8D8EF_100%)]" />
+								)}
+
+								<div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(10,31,68,0.06)_0%,rgba(10,31,68,0.28)_55%,rgba(10,31,68,0.72)_100%)]" />
+
+								<div className="absolute left-6 top-6">
+									<div
+										className={`inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] backdrop-blur-sm ${bannerClass}`}
+									>
+										{detail.dseType}
+									</div>
+								</div>
+
+								<div className="absolute bottom-0 left-0 right-0 p-6">
+									<div className="max-w-[820px]">
+										<div className="inline-flex rounded-full bg-white/90 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#346FB6]">
+											{detail.projectType}
+										</div>
+
+										<h2 className="mt-4 text-[30px] font-semibold leading-[1.12] text-white">
+											{detail.name}
+										</h2>
+
+										<div className="mt-3 flex items-center gap-2 text-[14px] text-white/90">
+											<MapPin className="h-4 w-4" />
+											<span>{detail.location}</span>
+										</div>
+									</div>
+								</div>
+							</div>
+
+							<div className="border-t border-[#E7ECF4] bg-white p-6">
+								{/* STATUS BLOCK */}
+								<div className="mb-4">
+									<span
+										className={`inline-flex rounded-full px-3 py-1 text-[12px] font-semibold ${statusMeta.className}`}
+									>
+										{statusMeta.label}
+									</span>
+
+									{statusMeta.message && (
+										<div className="mt-3 rounded-[12px] border border-[#E7ECF4] bg-[#F7F8FB] px-4 py-3 text-[13px] text-[#5F6C86]">
+											{statusMeta.message}
+										</div>
+									)}
+								</div>
+								<div className="mb-6">
+									<div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8FA0B8]">
+										Project Summary
+									</div>
+
+									<p className="mt-2 text-[15px] leading-[1.8] text-[#5F6C86]">
+										{expandedSummary
+											? detail.summary
+											: (detail.summary?.split('. ')[0] || detail.summary) +
+											  (detail.summary?.includes('.') ? '.' : '')}
+									</p>
+
+									{detail.summary && detail.summary.includes('.') && (
+										<button
+											onClick={() => setExpandedSummary(!expandedSummary)}
+											className="mt-2 text-[13px] font-semibold text-[#346FB6]"
+										>
+											{expandedSummary ? 'Show less' : 'Read more'}
+										</button>
+									)}
+								</div>
+
+								<div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+									<InfoBox label="Project Stage" value={detail.dseType} />
+									<InfoBox
+										label="Jurisdiction"
+										value={formatPlain(detail.jurisdiction)}
+									/>
+									<InfoBox
+										label="Contract Type"
+										value={formatPlain(detail.agreementType)}
+									/>
+								</div>
+
+								<div className="mt-5 rounded-[14px] bg-[#F7F8FB] p-5">
+									<div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8FA0B8]">
+										Stage Overview
+									</div>
+									<p className="mt-2 text-[15px] font-medium text-[#163F74]">
+										{detail.dseSummary}
+									</p>
+									<p className="mt-2 text-[14px] leading-[1.75] text-[#5F6C86]">
+										{detail.dseMeaning}
+									</p>
+								</div>
+
+								<div className="mt-4 rounded-[14px] bg-[#F7F8FB] p-5">
+									<div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8FA0B8]">
+										Why Capital is Being Raised
+									</div>
+									<p className="mt-2 text-[14px] leading-[1.75] text-[#5F6C86]">
+										{detail.whyFunding}
+									</p>
+								</div>
+							</div>
+						</div>
+
+						<div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
+							<StructuredBlock
+								title="Revenue Model"
+								accentClass="border-l-[#1F56D8]"
+								items={[
+									detail.revenueModelType
+										? `Revenue model: ${detail.revenueModelType}`
+										: '',
+									detail.counterparty
+										? `Counterparty: ${detail.counterparty}`
+										: '',
+									detail.contractYears
+										? `Contract term: ${detail.contractYears} years`
+										: '',
+									detail.paymentFrequency
+										? `Distribution cadence: ${detail.paymentFrequency}`
+										: '',
+								]}
+							/>
+
+							<StructuredBlock
+								title="Risk Considerations"
+								accentClass="border-l-[#F59E0B]"
+								items={[
+									detail.marketRiskLevel
+										? `Market risk: ${detail.marketRiskLevel}`
+										: '',
+									detail.counterpartyRiskLevel
+										? `Counterparty risk: ${detail.counterpartyRiskLevel}`
+										: '',
+									detail.technologyRiskLevel
+										? `Technology risk: ${detail.technologyRiskLevel}`
+										: '',
+									detail.riskMitigants
+										? `Mitigants: ${detail.riskMitigants}`
+										: '',
+								]}
+							/>
+						</div>
+					</div>
+
+					<div>
+						<div className="rounded-[18px] border border-[#E7ECF4] bg-white p-6 shadow-[0_2px_8px_rgba(16,24,40,0.03)]">
+							<div className="border-t-4 border-[#123DA8] pt-6">
+								<div className="flex items-start justify-between gap-4">
+									<div>
+										<h3 className="text-[22px] font-semibold text-[#163F74]">
+											Allocate Capital
+										</h3>
+										<p className="mt-2 text-[12px] uppercase tracking-[0.12em] text-[#7A879C]">
+											{detail.name}
+										</p>
+									</div>
+								</div>
+
+								<div className="mt-6 grid grid-cols-2 gap-4">
+									{detail.dseType === 'Operating' ? (
+										<>
+											<SidebarMetric
+												label="Funding Goal"
+												value={formatCurrency(detail.fundingGoal)}
+												highlight
+											/>
+											<SidebarMetric
+												label="Investment Term"
+												value={formatTermYears(detail.termYears)}
+											/>
+											<SidebarMetric
+												label="Min Commitment"
+												value={formatCurrency(detail.minInvestment)}
+											/>
+										</>
+									) : detail.dseType === 'Construction' ? (
+										<>
+											<SidebarMetric
+												label="Funding Goal"
+												value={formatCurrency(detail.fundingGoal)}
+												highlight
+											/>
+											<SidebarMetric
+												label="Build Stage"
+												value={formatPlain(detail.buildStage)}
+											/>
+											<SidebarMetric
+												label="Expected Ops"
+												value={formatPlain(detail.expectedOperationalDate)}
+											/>
+											<SidebarMetric
+												label="Min Commitment"
+												value={formatCurrency(detail.minInvestment)}
+											/>
+										</>
+									) : (
+										<>
+											<SidebarMetric
+												label="Funding Goal"
+												value={formatCurrency(detail.fundingGoal)}
+												highlight
+											/>
+											<SidebarMetric
+												label="Project Stage"
+												value={detail.dseType}
+											/>
+											<SidebarMetric
+												label="Min Commitment"
+												value={formatCurrency(detail.minInvestment)}
+											/>
+										</>
+									)}
+								</div>
+
+								{detail.fundingGoal > 0 && (
+									<div className="mt-5 rounded-[14px] border border-[#E7ECF4] bg-[#F7F8FB] px-5 py-4">
+										<div className="flex items-center justify-between gap-4">
+											<div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8FA0B8]">
+												Settled Progress
+											</div>
+											<div className="text-[16px] font-semibold text-[#123DA8]">
+												{formatCurrency(detail.amountSettled)} of{' '}
+												{formatCurrency(detail.fundingGoal)}
+											</div>
+										</div>
+
+										<div className="mt-3 h-2.5 w-full rounded-full bg-[#E3EAF3]">
+											<div
+												className="h-2.5 rounded-full bg-[#8DC6E7] transition-all duration-300"
+												style={{ width: `${detail.fundingProgressPct}%` }}
+											/>
+										</div>
+
+										<div className="mt-3 flex items-center justify-between text-[13px] text-[#5F6C86]">
+											<span>
+												{detail.fundingProgressPct.toFixed(0)}% funded
+											</span>
+											<span>{detail.investorCount} settled investors</span>
+										</div>
+									</div>
+								)}
+
+								<div className="mt-6">
+									<div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8FA0B8]">
+										Investment Amount (AUD)
+									</div>
+
+									<input
+										type="text"
+										inputMode="numeric"
+										value={investmentAmountAud.toLocaleString()}
+										onChange={(e) => {
+											const raw = e.target.value.replace(/,/g, '');
+											setInvestmentAmountAud(toNumber(raw));
+										}}
+										className="mt-3 w-full rounded-[12px] border border-[#A9B7CF] bg-[#F7F8FB] px-5 py-4 text-[18px] font-semibold text-[#1B2F56] outline-none"
+									/>
+								</div>
+
+								{detail.dseType !== 'Operating' && (
+									<div className="mt-5 rounded-[14px] border border-[#E7ECF4] bg-[#F7F8FB] px-5 py-4">
+										<div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8FA0B8]">
+											Capital Use
+										</div>
+										<p className="mt-2 text-[14px] leading-[1.75] text-[#5F6C86]">
+											{detail.whyFunding}
+										</p>
+									</div>
+								)}
+
+								{verificationGateMessage ? (
+									<div className="mt-5 rounded-[14px] border border-[#E7ECF4] bg-[#F7F8FB] px-5 py-4 text-[13px] leading-[1.75] text-[#5F6C86]">
+										{verificationGateMessage}
+									</div>
+								) : null}
+
+								{showTestVerificationBanner ? (
+									<div className="mt-5 rounded-[14px] border border-[#D9A441] bg-[#FFF8E8] px-5 py-4">
+										<div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9A6700]">
+											TEST
+										</div>
+										<p className="mt-2 text-[13px] leading-[1.75] text-[#7A5A00]">
+											Testnet verification override is active. Investing is
+											enabled for testing only and does not represent real live
+											compliance approval.
+										</p>
+									</div>
+								) : null}
+
+								<button
+									type="button"
+									onClick={() => setIsBuyTokensModalOpen(true)}
+									disabled={
+										detail.projectStatus !== 'live' ||
+										!detail.assetCode ||
+										!detail.assetIssuer ||
+										!detail.distributorWalletPublic ||
+										!detail.seriesId ||
+										canInvest === false
+									}
+									className="mt-6 w-full rounded-[14px] bg-[#123DA8] px-5 py-4 text-[16px] font-semibold text-white shadow-[0_4px_12px_rgba(18,61,168,0.22)] disabled:cursor-not-allowed disabled:opacity-60"
+								>
+									{detail.projectStatus !== 'live'
+										? 'Investment Not Available'
+										: canInvest === false
+										? 'Verification Approval Required'
+										: detail.projectStatus === 'live'
+										? 'View Investment Options'
+										: 'Investment Not Available'}
+								</button>
+
+								<button
+									type="button"
+									onClick={() => setShowRpa((v) => !v)}
+									className="mt-4 w-full rounded-[14px] bg-[#ECEDEF] px-5 py-4 text-[15px] font-semibold text-[#123DA8]"
+								>
+									{showRpa ? 'Hide Revenue Participation Agreement' : 'Request Revenue Participation Agreement'}
+								</button>
+
+								{showRpa ? (
+									<div className="mt-4 rounded-[14px] border border-[#D8DEE8] bg-[#F3F4F6] p-5 opacity-80">
+										<div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8FA0B8]">
+											Revenue Participation Agreement
+										</div>
+										<h4 className="mt-2 text-[18px] font-semibold text-[#163F74]">
+											Indicative Agreement View
+										</h4>
+										<p className="mt-3 text-[13px] leading-[1.75] text-[#5F6C86]">
+											This agreement preview is shown for investor review only.
+										</p>
+									</div>
+								) : null}
+
+								<div className="mt-8 border-t border-[#E9EDF4] pt-6">
+									<div className="space-y-3">
+										<div className="flex items-center justify-between text-[14px] text-[#5F6C86]">
+											<span>Min. Commitment</span>
+											<span className="font-semibold text-[#1B2F56]">
+												{formatCurrency(detail.minInvestment)}
+											</span>
+										</div>
+
+										{detail.dseType === 'Operating' && detail.termYears > 0 && (
+											<div className="flex items-center justify-between text-[14px] text-[#5F6C86]">
+												<span>Investment Term</span>
+												<span className="font-semibold text-[#123DA8]">
+													{formatTermYears(detail.termYears)}
+												</span>
+											</div>
+										)}
+
+										{detail.dseType === 'Construction' &&
+											detail.expectedOperationalDate && (
+												<div className="flex items-center justify-between text-[14px] text-[#5F6C86]">
+													<span>Expected Operations</span>
+													<span className="font-semibold text-[#123DA8]">
+														{formatPlain(detail.expectedOperationalDate)}
+													</span>
+												</div>
+											)}
+
+										{detail.fundingGoal > 0 && (
+											<div className="flex items-center justify-between text-[14px] text-[#5F6C86]">
+												<span>Funding Goal</span>
+												<span className="font-semibold text-[#123DA8]">
+													{formatCurrency(detail.fundingGoal)}
+												</span>
+											</div>
+										)}
+
+										{detail.fundingGoal > 0 && (
+											<div className="flex items-center justify-between text-[14px] text-[#5F6C86]">
+												<span>Settled Capital</span>
+												<span className="font-semibold text-[#123DA8]">
+													{formatCurrency(detail.amountSettled)}
+												</span>
+											</div>
+										)}
+
+										{detail.investorCount > 0 && (
+											<div className="flex items-center justify-between text-[14px] text-[#5F6C86]">
+												<span>Settled Investors</span>
+												<span className="font-semibold text-[#123DA8]">
+													{detail.investorCount}
+												</span>
+											</div>
+										)}
+
+										{detail.unitsSold > 0 && (
+											<div className="flex items-center justify-between text-[14px] text-[#5F6C86]">
+												<span>Units Sold</span>
+												<span className="font-semibold text-[#123DA8]">
+													{detail.unitsSold.toLocaleString()}
+												</span>
+											</div>
+										)}
+
+										{detail.unitsRemaining > 0 && (
+											<div className="flex items-center justify-between text-[14px] text-[#5F6C86]">
+												<span>Units Remaining</span>
+												<span className="font-semibold text-[#123DA8]">
+													{detail.unitsRemaining.toLocaleString()}
+												</span>
+											</div>
+										)}
+									</div>
+								</div>
+							</div>
+						</div>
+
+						<div className="mt-6 rounded-[18px] border border-dashed border-[#CBD5E1] bg-white p-6 shadow-[0_2px_8px_rgba(16,24,40,0.03)]">
+							{user?.id ? (
+								<div className="mb-6 rounded-[18px] border border-[#E7ECF4] bg-[#F7F8FB] p-5">
+									<h4 className="text-[18px] font-semibold text-[#163F74]">
+										Your Income From This Project
+									</h4>
+									<p className="mt-2 text-[14px] leading-[1.75] text-[#5F6C86]">
+										Estimated yield is based on trailing income over settled
+										invested capital for this asset.
+									</p>
+
+									<div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+										<SidebarMetric
+											label="Income Received"
+											value={formatMoney(
+												projectDistributionSummary?.totalIncomeReceived ?? 0,
+											)}
+											highlight
+										/>
+										<SidebarMetric
+											label="Latest Distribution"
+											value={formatPlain(
+												projectDistributionSummary?.latestDistributionDate,
+											)}
+										/>
+										<SidebarMetric
+											label="Estimated Yield"
+											value={formatPercent(
+												projectDistributionSummary?.estimatedYield ?? null,
+											)}
+										/>
+									</div>
+
+									<div className="mt-5">
+										<div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8FA0B8]">
+											Distribution History
+										</div>
+										{projectDistributions.length === 0 ? (
+											<div className="mt-3 text-[14px] text-[#5F6C86]">
+												No distribution records have been posted for your
+												position in this asset yet.
+											</div>
+										) : (
+											<div className="mt-3 overflow-x-auto">
+												<table className="min-w-full">
+													<thead>
+														<tr className="border-b border-[#E7ECF4] text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8FA0B8]">
+															<th className="pb-3 pr-4">Date</th>
+															<th className="pb-3 pr-4">Type</th>
+															<th className="pb-3 pr-4">Net</th>
+															<th className="pb-3 pr-4">Status</th>
+														</tr>
+													</thead>
+													<tbody>
+														{projectDistributions.slice(0, 5).map((item) => (
+															<tr
+																key={item.id}
+																className="border-b border-[#EEF1F7] text-[14px] text-[#1B2F56] last:border-b-0"
+															>
+																<td className="py-3 pr-4">
+																	{formatPlain(item.distributionDate)}
+																</td>
+																<td className="py-3 pr-4">{item.type}</td>
+																<td className="py-3 pr-4 font-semibold">
+																	{formatMoney(item.netAmount, item.currency)}
+																</td>
+																<td className="py-3 pr-4">{item.status}</td>
+															</tr>
+														))}
+													</tbody>
+												</table>
+											</div>
+										)}
+									</div>
+								</div>
+							) : null}
+
+							<div className="rounded-[18px] border border-dashed border-[#CBD5E1] bg-white p-6 shadow-[0_2px_8px_rgba(16,24,40,0.03)]">
+								<h4 className="text-[18px] font-semibold text-[#163F74]">
+									Institutional Support
+								</h4>
+								<p className="mt-3 text-[14px] leading-[1.8] text-[#5F6C86]">
+									Speak with a dedicated advisor about this asset's structure,
+									risk profile, and allocation considerations.
+								</p>
+								<button
+									type="button"
+									className="mt-4 text-[14px] font-semibold text-[#123DA8]"
+								>
+									Schedule Callback
+								</button>
+							</div>
+						</div>
+					</div>
+				</div>
+
+				<BuyTokensModal
+					isOpen={isBuyTokensModalOpen}
+					onSubmit={handleBuyTokens}
+					closeModal={() => setIsBuyTokensModalOpen(false)}
+					investorAddress={activeWalletAddress}
+					tokenAddress={ISSUER_ADDRESS}
+					tokenPrice={detail.tokenPrice}
+					tokenSymbol={detail.tokenSymbol}
+					projectName={detail.name}
+					projectStatus={detail.projectStatus}
+					assetCode={detail.assetCode}
+					assetIssuer={detail.assetIssuer}
+					distributorWalletPublic={detail.distributorWalletPublic}
+					onConnectWallet={handleConnectWallet}
+					onSignTransaction={handleSignTransaction}
+				/>
+			</div>
+		</div>
+	);
+}

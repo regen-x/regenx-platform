@@ -1,0 +1,340 @@
+import {
+	ArrowLeftRight,
+	Briefcase,
+	Building2,
+	ClipboardList,
+	FileCog,
+	FolderOpen,
+	LayoutDashboard,
+	LifeBuoy,
+	Search,
+	Settings,
+	ShieldCheck,
+	Tag,
+	Users,
+	Wallet,
+} from 'lucide-react';
+
+import { PATHS } from '@/constants/routes/paths';
+
+type SidebarRole =
+	| 'admin'
+	| 'climateDeveloper'
+	| 'wholesaleInvestor'
+	| 'wealthManager';
+
+export type SidebarMenuItem = {
+	menuTitle: string;
+	title: string;
+	label: string;
+	path: string;
+	dataTest: string;
+	roles: SidebarRole[];
+	icon: JSX.Element;
+	active: boolean;
+	selected: boolean;
+};
+
+const DashboardIcon = (): JSX.Element => (
+	<LayoutDashboard size={16} strokeWidth={2} />
+);
+
+const DeveloperSetupIcon = (): JSX.Element => (
+	<Building2 size={16} strokeWidth={2} />
+);
+
+const EntitiesIcon = (): JSX.Element => <Building2 size={16} strokeWidth={2} />;
+
+const ProjectSetupIcon = (): JSX.Element => (
+	<FileCog size={16} strokeWidth={2} />
+);
+
+const ProjectsIcon = (): JSX.Element => (
+	<FolderOpen size={16} strokeWidth={2} />
+);
+
+const CashIcon = (): JSX.Element => <Wallet size={16} strokeWidth={2} />;
+
+const OffersIcon = (): JSX.Element => <Tag size={16} strokeWidth={2} />;
+const InvestorsIcon = (): JSX.Element => <Users size={16} strokeWidth={2} />;
+const OrdersIcon = (): JSX.Element => (
+	<ClipboardList size={16} strokeWidth={2} />
+);
+const SupportIcon = (): JSX.Element => <LifeBuoy size={16} strokeWidth={2} />;
+const SettingsIcon = (): JSX.Element => <Settings size={16} strokeWidth={2} />;
+
+const PortfolioIcon = (): JSX.Element => (
+	<Briefcase size={16} strokeWidth={2} />
+);
+
+const VerificationIcon = (): JSX.Element => (
+	<ShieldCheck size={16} strokeWidth={2} />
+);
+
+const OpportunitiesIcon = (): JSX.Element => (
+	<Search size={16} strokeWidth={2} />
+);
+
+const ProjectApprovalIcon = (): JSX.Element => (
+	<svg
+		width="16"
+		height="16"
+		viewBox="0 0 24 24"
+		fill="none"
+		stroke="currentColor"
+		strokeWidth="2"
+		strokeLinecap="round"
+		strokeLinejoin="round"
+	>
+		<rect x="4" y="3" width="16" height="18" rx="2"></rect>
+		<path d="M8 7h8"></path>
+		<path d="M8 11h5"></path>
+		<path d="M8 15h3"></path>
+		<path d="M15 15l2 2 4-4"></path>
+	</svg>
+);
+
+const InvestorApprovalIcon = (): JSX.Element => (
+	<svg
+		width="16"
+		height="16"
+		viewBox="0 0 24 24"
+		fill="none"
+		stroke="currentColor"
+		strokeWidth="2"
+		strokeLinecap="round"
+		strokeLinejoin="round"
+	>
+		<circle cx="9" cy="8" r="3"></circle>
+		<path d="M4 19c0-2.5 2.5-4.5 5-4.5s5 2 5 4.5"></path>
+		<path d="M16 8h5"></path>
+		<path d="M18.5 5.5v5"></path>
+	</svg>
+);
+
+const TransactionsIcon = (): JSX.Element => (
+	<ArrowLeftRight size={16} strokeWidth={2} />
+);
+
+const AuditIcon = (): JSX.Element => (
+	<svg
+		width="16"
+		height="16"
+		viewBox="0 0 24 24"
+		fill="none"
+		stroke="currentColor"
+		strokeWidth="2"
+		strokeLinecap="round"
+		strokeLinejoin="round"
+	>
+		<path d="M9 17H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l5 5v7a2 2 0 0 1-2 2h-2"></path>
+		<path d="M9 3v5h5"></path>
+		<circle cx="10" cy="17" r="3"></circle>
+		<path d="M21 21l-2.2-2.2"></path>
+	</svg>
+);
+
+const makeItem = (
+	title: string,
+	path: string,
+	roles: SidebarRole[],
+	icon: JSX.Element,
+	dataTest: string,
+): SidebarMenuItem => ({
+	menuTitle: title,
+	title,
+	label: title,
+	path,
+	dataTest,
+	roles,
+	icon,
+	active: false,
+	selected: false,
+});
+
+const items: SidebarMenuItem[] = [
+	makeItem(
+		'Dashboard',
+		`/${PATHS.DASHBOARD}`,
+		['climateDeveloper', 'wholesaleInvestor', 'wealthManager'],
+		<DashboardIcon />,
+		'sidebar-dashboard',
+	),
+
+	makeItem(
+		'Developer Setup',
+		`/${PATHS.DEVELOPER_SETUP}`,
+		['climateDeveloper'],
+		<DeveloperSetupIcon />,
+		'sidebar-developer-setup',
+	),
+	makeItem(
+		'Project Setup',
+		`/${PATHS.PROJECT_SETUP}`,
+		['climateDeveloper'],
+		<ProjectSetupIcon />,
+		'sidebar-project-setup',
+	),
+	makeItem(
+		'Deal Room',
+		`/${PATHS.PROJECTS}`,
+		['climateDeveloper'],
+		<ProjectsIcon />,
+		'sidebar-projects',
+	),
+	makeItem(
+		'Cash Account',
+		`/${PATHS.CASH_ACCOUNT}`,
+		['climateDeveloper'],
+		<CashIcon />,
+		'sidebar-cash-account',
+	),
+	makeItem(
+		'Transactions',
+		`/${PATHS.DEV_TRANSACTIONS}`,
+		['climateDeveloper'],
+		<TransactionsIcon />,
+		'sidebar-developer-transactions',
+	),
+	makeItem(
+		'Investors',
+		`/${PATHS.PROJECT_INVESTORS}`,
+		['climateDeveloper'],
+		<InvestorsIcon />,
+		'sidebar-project-investors',
+	),
+	makeItem(
+		'Settings',
+		`/${PATHS.SETTINGS}`,
+		['climateDeveloper'],
+		<SettingsIcon />,
+		'sidebar-settings',
+	),
+	makeItem(
+		'Support',
+		`/${PATHS.SUPPORT}`,
+		['climateDeveloper'],
+		<SupportIcon />,
+		'sidebar-developer-support',
+	),
+
+	makeItem(
+		'Account Verification',
+		`/${PATHS.ACCOUNT_VERIFICATION}`,
+		['wholesaleInvestor'],
+		<VerificationIcon />,
+		'sidebar-account-verification',
+	),
+	makeItem(
+		'Portfolio',
+		'/portfolio',
+		['wholesaleInvestor'],
+		<PortfolioIcon />,
+		'sidebar-portfolio',
+	),
+	makeItem(
+		'Opportunities',
+		`/${PATHS.OPPORTUNITIES}`,
+		['wholesaleInvestor'],
+		<OpportunitiesIcon />,
+		'sidebar-opportunities',
+	),
+
+	makeItem(
+		'Cash Account',
+		`/${PATHS.CASH_ACCOUNT}`,
+		['wholesaleInvestor', 'wealthManager'],
+		<CashIcon />,
+		'sidebar-cash-account',
+	),
+	makeItem(
+		'Transactions',
+		`/${PATHS.TRANSACTIONS}`,
+		['wholesaleInvestor', 'wealthManager'],
+		<TransactionsIcon />,
+		'sidebar-investor-transactions',
+	),
+	makeItem(
+		'Orders',
+		`/${PATHS.ORDERS}`,
+		['wholesaleInvestor', 'wealthManager'],
+		<OrdersIcon />,
+		'sidebar-investor-orders',
+	),
+	makeItem(
+		'Distributions',
+		`/${PATHS.DISTRIBUTIONS}`,
+		['wholesaleInvestor', 'wealthManager'],
+		<Wallet size={16} strokeWidth={2} />,
+		'sidebar-investor-distributions',
+	),
+	makeItem(
+		'Sell Offers',
+		`/${PATHS.OFFERS}`,
+		['wholesaleInvestor', 'wealthManager'],
+		<OffersIcon />,
+		'sidebar-sell-offers',
+	),
+	makeItem(
+		'Support',
+		`/${PATHS.SUPPORT}`,
+		['wholesaleInvestor', 'wealthManager'],
+		<SupportIcon />,
+		'sidebar-investor-support',
+	),
+
+	makeItem(
+		'Admin Dashboard',
+		'/admin/dashboard',
+		['admin'],
+		<DashboardIcon />,
+		'sidebar-admin-dashboard',
+	),
+	makeItem(
+		'Project Approvals',
+		'/admin/project-approvals',
+		['admin'],
+		<ProjectApprovalIcon />,
+		'sidebar-admin-project-approvals',
+	),
+	makeItem(
+		'SPV Issuance Pipeline',
+		'/admin/entities-spvs',
+		['admin'],
+		<EntitiesIcon />,
+		'sidebar-admin-entities-spvs',
+	),
+	makeItem(
+		'Investor Approvals',
+		'/admin/investor-approvals',
+		['admin'],
+		<InvestorApprovalIcon />,
+		'sidebar-admin-investor-approvals',
+	),
+	makeItem(
+		'Transactions',
+		'/admin/transactions',
+		['admin'],
+		<TransactionsIcon />,
+		'sidebar-admin-transactions',
+	),
+	makeItem(
+		'Support Tickets',
+		'/admin/support',
+		['admin'],
+		<SupportIcon />,
+		'sidebar-admin-support',
+	),
+	makeItem(
+		'Audit Log',
+		'/admin/audit-log',
+		['admin'],
+		<AuditIcon />,
+		'sidebar-admin-audit-log',
+	),
+];
+
+export const getMenuItems = (role?: string): SidebarMenuItem[] => {
+	if (!role) return items;
+	return items.filter((item) => item.roles.includes(role as SidebarRole));
+};

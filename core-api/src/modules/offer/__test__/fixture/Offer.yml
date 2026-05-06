@@ -1,0 +1,64 @@
+entity: OfferEntity
+items:
+  offer1:
+    uuid: '00000000-0000-0000-0000-000000000001'
+    amount: 1000000000
+    price: 500000000
+    externalId: 1001
+    isActive: true
+    user: '@user2'
+    project: '@project1'
+
+  offer2:
+    uuid: '00000000-0000-0000-0000-000000000002'
+    amount: 2000000000
+    price: 750000000
+    externalId: 1002
+    isActive: true
+    user: '@user2'
+    project: '@project1'
+
+  offer3:
+    uuid: '00000000-0000-0000-0000-000000000003'
+    amount: 0
+    price: 450000000
+    externalId: 1003
+    isActive: false
+    user: '@user2'
+    project: '@project1'
+
+  offer4:
+    uuid: '00000000-0000-0000-0000-000000000004'
+    amount: 1500000000
+    price: 600000000
+    externalId: 1004
+    isActive: true
+    user: '@user3'
+    project: '@project1'
+
+  offer5:
+    uuid: '00000000-0000-0000-0000-000000000005'
+    amount: 3000000000
+    price: 850000000
+    externalId: 1005
+    isActive: true
+    user: '@user3'
+    project: '@project1'
+
+  offer6:
+    uuid: '00000000-0000-0000-0000-000000000006'
+    amount: 0
+    price: 550000000
+    externalId: 1006
+    isActive: false
+    user: '@user3'
+    project: '@project1'
+
+  offer7:
+    uuid: '00000000-0000-0000-0000-000000000007'
+    amount: 0
+    price: 700000000
+    externalId: 1007
+    isActive: false
+    user: '@user3'
+    project: '@project1'

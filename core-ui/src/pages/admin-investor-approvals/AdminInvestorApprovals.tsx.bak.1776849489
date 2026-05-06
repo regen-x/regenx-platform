@@ -1,0 +1,1301 @@
+import { useCallback, useEffect, useMemo, useState } from 'react';
+
+import { AdminPageHeader, AdminStatusBadge } from '@/components/admin-ui';
+import BaseModal from '@/components/modal/base-modal';
+import { investorVerificationService } from '@/services/investorVerification.service';
+
+type AdminReviewStatus =
+	| 'pending'
+	| 'approved'
+	| 'rejected'
+	| 'more_info_required';
+type SumsubStatus =
+	| 'not_started'
+	| 'pending'
+	| 'approved'
+	| 'rejected'
+	| 'review_required';
+type InvestorEligibilityStatus = 'blocked' | 'approved' | 'suspended';
+type ReviewState =
+	| 'incomplete'
+	| 'admin_pending'
+	| 'approved'
+	| 'more_info_required'
+	| 'rejected'
+	| 'eligibility_blocked'
+	| 'eligibility_suspended'
+	| 'testing_only';
+type VerificationOverrideMode = 'none' | 'testnet';
+
+type InvestorVerificationQueueItem = {
+	id: number | null;
+	userId: string;
+	sumsubApplicantId?: string | null;
+	sumsubStatus: SumsubStatus;
+	adminReviewStatus: AdminReviewStatus;
+	investorEligibilityStatus: InvestorEligibilityStatus;
+	wholesaleStatus?: string;
+	wholesaleCertificateOriginalName?: string | null;
+	wholesaleCertificateExpiryDate?: string | null;
+	wholesaleCertificateDownloadUrl?: string | null;
+	reviewNotes?: string | null;
+	reviewedAt?: string | null;
+	reviewedBy?: string | null;
+	createdAt?: string;
+	email?: string | null;
+	fullname?: string | null;
+	phoneNumber?: string | null;
+	updatedAt?: string;
+	eligibilitySource?: 'real_compliance' | 'test_override' | 'none';
+	verificationOverrideMode?: VerificationOverrideMode;
+	testOverrideActive?: boolean;
+	testInvestmentOverride?: boolean;
+	testInvestmentOverrideSetAt?: string | null;
+	testInvestmentOverrideSetBy?: string | null;
+	testInvestmentOverrideNote?: string | null;
+	isEligible?: boolean;
+	reviewState?: ReviewState;
+};
+
+type InvestorVerificationDetail = InvestorVerificationQueueItem & {
+	amlAnswers?: Record<string, any> | null;
+};
+
+const formatLabel = (value?: string | null) =>
+	String(value || 'pending')
+		.replaceAll('_', ' ')
+		.replace(/\b\w/g, (char) => char.toUpperCase());
+
+const getBadgeTone = (
+	status?: string | null,
+): 'yellow' | 'pink' | 'blue' | 'gray' => {
+	switch (status) {
+		case 'approved':
+		case 'real_compliance':
+		case 'test_override':
+			return 'blue';
+		case 'rejected':
+		case 'blocked':
+		case 'suspended':
+			return 'pink';
+		case 'more_info_required':
+		case 'requires_more_info':
+		case 'review_required':
+		case 'testing_only':
+			return 'yellow';
+		default:
+			return 'gray';
+	}
+};
+
+const getUnderlyingReviewState = (item: {
+	sumsubStatus?: SumsubStatus;
+	adminReviewStatus?: AdminReviewStatus;
+	investorEligibilityStatus?: InvestorEligibilityStatus;
+}) => {
+	if (item.adminReviewStatus === 'rejected') return 'rejected';
+	if (item.investorEligibilityStatus === 'suspended')
+		return 'eligibility_suspended';
+	if (item.adminReviewStatus === 'more_info_required')
+		return 'more_info_required';
+	if (
+		item.sumsubStatus === 'approved' &&
+		item.adminReviewStatus === 'approved'
+	)
+		return 'approved';
+	if (item.sumsubStatus === 'approved' && item.adminReviewStatus === 'pending')
+		return 'admin_pending';
+	if (
+		item.sumsubStatus === 'not_started' ||
+		item.sumsubStatus === 'pending' ||
+		item.sumsubStatus === 'review_required'
+	)
+		return 'incomplete';
+	if (item.investorEligibilityStatus === 'blocked')
+		return 'eligibility_blocked';
+	return 'incomplete';
+};
+
+const renderBadge = (label?: string | null, toneKey?: string | null) => {
+	const fallback = label || 'pending';
+	return (
+		<AdminStatusBadge
+			label={formatLabel(fallback)}
+			tone={getBadgeTone(toneKey || fallback)}
+		/>
+	);
+};
+
+const SummaryCard = ({
+	title,
+	value,
+	subtitle,
+	accent,
+}: {
+	title: string;
+	value: string;
+	subtitle: string;
+	accent: 'blue' | 'pink' | 'yellow' | 'red';
+}) => {
+	const accentClass =
+		accent === 'blue'
+			? 'before:bg-[#38BDF8]'
+			: accent === 'pink'
+			? 'before:bg-[#EC4899]'
+			: accent === 'yellow'
+			? 'before:bg-[#F59E0B]'
+			: 'before:bg-[#F43F5E]';
+
+	return (
+		<div
+			className={`relative overflow-hidden rounded-[18px] border border-[#E7ECF4] bg-white px-5 py-4 shadow-[0_2px_8px_rgba(16,24,40,0.03)] before:absolute before:left-0 before:top-0 before:h-full before:w-[4px] ${accentClass}`}
+		>
+			<p className="text-[13px] font-semibold text-[#2C4775]">{title}</p>
+			<h3 className="mt-2 text-[21px] font-semibold leading-none text-[#1263A7]">
+				{value}
+			</h3>
+			<p className="mt-2 text-[13px] leading-[1.4] text-[#5D6B84]">
+				{subtitle}
+			</p>
+		</div>
+	);
+};
+
+const DetailItem = ({
+	label,
+	value,
+}: {
+	label: string;
+	value?: string | null;
+}) => (
+	<div className="rounded-[16px] border border-[#E7ECF4] bg-[#F8FBFF] px-4 py-4">
+		<p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8FA0B8]">
+			{label}
+		</p>
+		<p className="mt-2 text-sm font-medium text-[#163F74]">
+			{value && String(value).trim() ? value : 'Not provided'}
+		</p>
+	</div>
+);
+
+export default function AdminInvestorApprovals() {
+	const adminTestOverrideEnabled =
+		import.meta.env.MODE !== 'production' &&
+		import.meta.env.VITE_ENABLE_ADMIN_TEST_OVERRIDE !== 'false';
+	const [investors, setInvestors] = useState<InvestorVerificationQueueItem[]>(
+		[],
+	);
+	const [search, setSearch] = useState('');
+	const [statusFilter, setStatusFilter] = useState<
+		'all' | ReviewState
+	>('all');
+	const [notesByUserId, setNotesByUserId] = useState<Record<string, string>>(
+		{},
+	);
+	const [processingUserId, setProcessingUserId] = useState<string | null>(null);
+	const [selectedInvestorId, setSelectedInvestorId] = useState<string | null>(
+		null,
+	);
+	const [selectedInvestorDetail, setSelectedInvestorDetail] =
+		useState<InvestorVerificationDetail | null>(null);
+	const [isDetailLoading, setIsDetailLoading] = useState(false);
+	const [pageError, setPageError] = useState('');
+	const [pageSuccess, setPageSuccess] = useState('');
+	const [isLoading, setIsLoading] = useState(false);
+	const [overrideModal, setOverrideModal] = useState<{
+		isOpen: boolean;
+		mode: 'enable' | 'disable';
+		userId: string | null;
+		investorLabel: string;
+	}>({
+		isOpen: false,
+		mode: 'enable',
+		userId: null,
+		investorLabel: '',
+	});
+	const [overrideNote, setOverrideNote] = useState('');
+
+	const loadQueue = useCallback(async () => {
+		try {
+			setIsLoading(true);
+			setPageError('');
+			const rows = await investorVerificationService.getAdminQueue();
+			setInvestors(rows);
+			setNotesByUserId((prev) => {
+				const next = { ...prev };
+				for (const row of rows) {
+					next[row.userId] = prev[row.userId] ?? String(row.reviewNotes || '');
+				}
+				return next;
+			});
+		} catch (error: any) {
+			console.error('Failed to load investor verification queue', error);
+			if (Number(error?.response?.status) === 404) {
+				setInvestors([]);
+				setPageError('');
+				return;
+			}
+			setPageError(
+				error?.response?.data?.message ||
+					error?.message ||
+					'Failed to load investor verification queue.',
+			);
+		} finally {
+			setIsLoading(false);
+		}
+	}, []);
+
+	useEffect(() => {
+		void loadQueue();
+	}, [loadQueue]);
+
+	const filteredInvestors = useMemo(() => {
+		const query = search.trim().toLowerCase();
+
+		return [...investors]
+			.filter((item) => {
+				if (!query) return true;
+				return (
+					String(item.fullname || '')
+						.toLowerCase()
+						.includes(query) ||
+					String(item.email || '')
+						.toLowerCase()
+						.includes(query) ||
+					String(item.phoneNumber || '')
+						.toLowerCase()
+						.includes(query)
+				);
+			})
+			.filter((item) => {
+				if (statusFilter === 'all') return true;
+				return item.reviewState === statusFilter;
+			})
+			.sort(
+				(a, b) =>
+					new Date(b.updatedAt || 0).getTime() -
+					new Date(a.updatedAt || 0).getTime(),
+			);
+	}, [investors, search, statusFilter]);
+
+	const openInvestorReview = async (userId: string) => {
+		try {
+			setSelectedInvestorId(userId);
+			setSelectedInvestorDetail(null);
+			setIsDetailLoading(true);
+			setPageError('');
+			const detail = await investorVerificationService.getAdminDetail(userId);
+			setSelectedInvestorDetail(detail);
+			setNotesByUserId((prev) => ({
+				...prev,
+				[userId]: prev[userId] ?? String(detail.reviewNotes || ''),
+			}));
+		} catch (error: any) {
+			console.error('Failed to load investor review detail', error);
+			if (Number(error?.response?.status) === 404) {
+				setPageError(
+					'Investor verification detail is not available right now.',
+				);
+				return;
+			}
+			setPageError(
+				error?.response?.data?.message ||
+					error?.message ||
+					'Failed to load investor review detail.',
+			);
+		} finally {
+			setIsDetailLoading(false);
+		}
+	};
+
+	const counts = useMemo(
+		() => ({
+			incomplete: investors.filter((item) => item.reviewState === 'incomplete')
+				.length,
+			sumsubApprovedPendingAdmin: investors.filter(
+				(item) => item.reviewState === 'admin_pending',
+			).length,
+			moreInfo: investors.filter(
+				(item) => item.reviewState === 'more_info_required',
+			).length,
+			approved: investors.filter(
+				(item) => item.reviewState === 'approved',
+			).length,
+			rejected: investors.filter(
+				(item) => item.reviewState === 'rejected',
+			).length,
+			testingOnly: investors.filter((item) => item.reviewState === 'testing_only')
+				.length,
+		}),
+		[investors],
+	);
+
+	const submitReview = async (
+		userId: string,
+		adminReviewStatus: 'approved' | 'rejected' | 'more_info_required',
+	) => {
+		const reviewNotes = String(notesByUserId[userId] || '').trim();
+		if (adminReviewStatus !== 'approved' && !reviewNotes) {
+			setPageError(
+				'Please enter review notes before rejecting or requesting more information.',
+			);
+			return;
+		}
+
+		try {
+			setProcessingUserId(userId);
+			setPageError('');
+			setPageSuccess('');
+			await investorVerificationService.reviewInvestor(userId, {
+				adminReviewStatus,
+				reviewNotes: reviewNotes || undefined,
+			});
+			await loadQueue();
+			if (selectedInvestorId === userId) {
+				const detail = await investorVerificationService.getAdminDetail(userId);
+				setSelectedInvestorDetail(detail);
+			}
+			setPageSuccess(
+				`Investor review updated to ${formatLabel(adminReviewStatus)}.`,
+			);
+		} catch (error: any) {
+			console.error('Failed to update investor review', error);
+			if (Number(error?.response?.status) === 404) {
+				setPageError(
+					'Investor review actions are not available in this environment yet.',
+				);
+				return;
+			}
+			setPageError(
+				error?.response?.data?.message ||
+					error?.message ||
+					'Failed to update investor review.',
+			);
+		} finally {
+			setProcessingUserId(null);
+		}
+	};
+
+	const openOverrideModal = (
+		item: InvestorVerificationQueueItem,
+		mode: 'enable' | 'disable',
+	) => {
+		setOverrideModal({
+			isOpen: true,
+			mode,
+			userId: item.userId,
+			investorLabel: item.fullname || item.email || `Investor ${item.userId}`,
+		});
+		setOverrideNote(
+			mode === 'enable' ? String(item.testInvestmentOverrideNote || '') : '',
+		);
+	};
+
+	const closeOverrideModal = () => {
+		setOverrideModal({
+			isOpen: false,
+			mode: 'enable',
+			userId: null,
+			investorLabel: '',
+		});
+		setOverrideNote('');
+	};
+
+	const submitTestOverride = async () => {
+		if (!overrideModal.userId) return;
+
+		try {
+			setProcessingUserId(overrideModal.userId);
+			setPageError('');
+			setPageSuccess('');
+
+			if (overrideModal.mode === 'enable') {
+				await investorVerificationService.enableAdminTestOverride(
+					overrideModal.userId,
+					{
+						note: overrideNote.trim() || undefined,
+					},
+				);
+			} else {
+				await investorVerificationService.disableAdminTestOverride(
+					overrideModal.userId,
+					{
+						note: overrideNote.trim() || undefined,
+					},
+				);
+			}
+
+			await loadQueue();
+			if (selectedInvestorId === overrideModal.userId) {
+				const detail = await investorVerificationService.getAdminDetail(
+					overrideModal.userId,
+				);
+				setSelectedInvestorDetail(detail);
+			}
+
+			setPageSuccess(
+				overrideModal.mode === 'enable'
+					? 'Test override enabled for this investor in non-production.'
+					: 'Test override disabled for this investor.',
+			);
+			closeOverrideModal();
+		} catch (error: any) {
+			console.error('Failed to update test override', error);
+			setPageError(
+				error?.response?.data?.message ||
+					error?.message ||
+					'Failed to update the investor test override.',
+			);
+		} finally {
+			setProcessingUserId(null);
+		}
+	};
+
+	const amlEntries = useMemo(() => {
+		if (!selectedInvestorDetail?.amlAnswers) return [];
+
+		return Object.entries(selectedInvestorDetail.amlAnswers).map(
+			([key, value]) => ({
+				label: formatLabel(key),
+				value:
+					value == null || value === ''
+						? 'Not provided'
+						: typeof value === 'boolean'
+						? value
+							? 'Yes'
+							: 'No'
+						: String(value),
+			}),
+		);
+	}, [selectedInvestorDetail]);
+
+	return (
+		<div
+			className="min-h-screen bg-[#F7F8FB] px-4 py-4"
+			data-test="admin-investor-approvals"
+		>
+			<div className="max-w-[1220px]">
+				<AdminPageHeader
+					eyebrow="Admin Portal"
+					title="Investor Approvals"
+					description="Review Sumsub, RegenX admin review, eligibility gating, and the non-production Testing Only override without changing the underlying compliance outcome."
+				/>
+
+				{!adminTestOverrideEnabled ? (
+					<div className="mb-4 rounded-[18px] border border-[#E7ECF4] bg-white px-4 py-3 text-sm text-[#5F6C86] shadow-[0_2px_8px_rgba(16,24,40,0.03)]">
+						Testing Only controls are unavailable in production environments.
+					</div>
+				) : null}
+
+				<div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-4">
+					<SummaryCard
+						title="Incomplete"
+						value={String(counts.incomplete)}
+						subtitle="New or partially started investor onboarding records"
+						accent="yellow"
+					/>
+					<SummaryCard
+						title="Awaiting Admin Review"
+						value={String(counts.sumsubApprovedPendingAdmin)}
+						subtitle="Sumsub approved, waiting on RegenX decision"
+						accent="blue"
+					/>
+					<SummaryCard
+						title="More Info Required"
+						value={String(counts.moreInfo)}
+						subtitle="Investors need to provide additional supporting information"
+						accent="pink"
+					/>
+					<SummaryCard
+						title="Approved"
+						value={String(counts.approved)}
+						subtitle="Eligible for investment access"
+						accent="pink"
+					/>
+				</div>
+				<div className="mt-5 grid grid-cols-1 gap-5 md:grid-cols-2">
+					<SummaryCard
+						title="Rejected"
+						value={String(counts.rejected)}
+						subtitle="Blocked by internal RegenX review"
+						accent="red"
+					/>
+					<SummaryCard
+						title="Testing Only"
+						value={String(counts.testingOnly)}
+						subtitle="Non-production investors unlocked only by test override"
+						accent="yellow"
+					/>
+				</div>
+
+				<div className="mt-6 rounded-[18px] border border-[#E7ECF4] bg-white p-5 shadow-[0_2px_8px_rgba(16,24,40,0.03)]">
+					<div className="grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,1.2fr)_220px_180px]">
+						<div>
+							<label className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8FA0B8]">
+								Investor Search
+							</label>
+							<input
+								value={search}
+								onChange={(event) => setSearch(event.target.value)}
+								className="w-full rounded-[18px] border border-[#E7ECF4] bg-white px-4 py-3 text-sm text-[#163F74] outline-none placeholder:text-[#98A2B3]"
+								placeholder="Search investor name, email, or phone"
+								data-test="admin-investor-approvals-search"
+							/>
+						</div>
+
+						<div>
+							<label className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8FA0B8]">
+								Review State
+							</label>
+							<select
+								value={statusFilter}
+								onChange={(event) =>
+									setStatusFilter(event.target.value as 'all' | ReviewState)
+								}
+								className="w-full rounded-[18px] border border-[#E7ECF4] bg-white px-4 py-3 text-sm text-[#163F74] outline-none"
+								data-test="admin-investor-approvals-filter"
+							>
+								<option value="all">All review states</option>
+								<option value="incomplete">Incomplete</option>
+								<option value="admin_pending">Admin pending</option>
+								<option value="approved">Approved</option>
+								<option value="more_info_required">More info required</option>
+								<option value="rejected">Rejected</option>
+								<option value="eligibility_blocked">Eligibility blocked</option>
+								<option value="eligibility_suspended">Eligibility suspended</option>
+								<option value="testing_only">Testing Only</option>
+							</select>
+						</div>
+
+						<div className="flex items-end">
+							<button
+								type="button"
+								onClick={() => void loadQueue()}
+								className="w-full rounded-[14px] border border-[#2F80ED] bg-[#2F80ED] px-4 py-3 text-sm font-semibold text-white"
+								data-test="admin-investor-approvals-refresh"
+							>
+								Refresh Queue
+							</button>
+						</div>
+					</div>
+				</div>
+
+				{pageError ? (
+					<div
+						className="mt-4 rounded-[18px] border border-[#F6CDD6] bg-[#FFF4F7] px-4 py-3 text-sm text-[#B4235D]"
+						data-test="admin-investor-approvals-error"
+					>
+						{pageError}
+					</div>
+				) : null}
+
+				{pageSuccess ? (
+					<div className="mt-4 rounded-[18px] border border-[#CDECD7] bg-[#EBF8F0] px-4 py-3 text-sm text-[#0B7A33]">
+						{pageSuccess}
+					</div>
+				) : null}
+
+				<div className="mt-6 overflow-x-auto rounded-[18px] border border-[#E7ECF4] bg-white p-6 shadow-[0_2px_8px_rgba(16,24,40,0.03)]">
+					{isLoading ? (
+						<div className="text-sm text-[#5F6C86]">
+							Loading investor approvals...
+						</div>
+					) : (
+						<table className="min-w-full border-separate border-spacing-y-3">
+							<thead>
+								<tr className="text-left text-sm text-[#98A2B3]">
+									<th className="pb-2 font-medium uppercase tracking-[0.08em]">
+										Investor
+									</th>
+									<th className="pb-2 font-medium uppercase tracking-[0.08em]">
+										Sumsub
+									</th>
+									<th className="pb-2 font-medium uppercase tracking-[0.08em]">
+										Admin Review
+									</th>
+									<th className="pb-2 font-medium uppercase tracking-[0.08em]">
+										Eligibility
+									</th>
+									<th className="pb-2 font-medium uppercase tracking-[0.08em]">
+										Certificate
+									</th>
+									<th className="pb-2 font-medium uppercase tracking-[0.08em]">
+										Notes
+									</th>
+									<th className="pb-2 font-medium uppercase tracking-[0.08em]">
+										Test Mode
+									</th>
+									<th className="pb-2 font-medium uppercase tracking-[0.08em]">
+										Actions
+									</th>
+								</tr>
+							</thead>
+
+							<tbody>
+								{filteredInvestors.map((item) => {
+									const isBusy = processingUserId === item.userId;
+									const underlyingReviewState = getUnderlyingReviewState(item);
+									const isTestingOnly = Boolean(item.testOverrideActive);
+									const investorLabel =
+										item.fullname || item.email || `User ${item.userId}`;
+
+									return (
+										<tr
+											key={item.userId}
+											className="rounded-[18px] bg-[#FCFDFE] text-sm text-[#163F74]"
+											data-test={`investor-approval-row-${item.userId}`}
+										>
+											<td className="rounded-l-2xl px-3 py-4 align-top">
+												<div className="font-medium">{investorLabel}</div>
+												<div className="mt-1 text-xs text-[#5F6C86]">
+													{item.email || 'No email'}
+												</div>
+												<div className="mt-1 text-xs text-[#5F6C86]">
+													{item.phoneNumber || 'No phone'}
+												</div>
+												{item.sumsubApplicantId ? (
+													<div className="mt-2 text-xs text-[#5F6C86]">
+														Sumsub applicant {item.sumsubApplicantId}
+													</div>
+												) : null}
+											</td>
+
+											<td className="px-3 py-4 align-top">
+												{renderBadge(item.sumsubStatus || 'not_started')}
+											</td>
+
+											<td className="px-3 py-4 align-top">
+												{renderBadge(item.adminReviewStatus || 'pending')}
+												{item.reviewedAt ? (
+													<div className="mt-2 text-xs text-[#5F6C86]">
+														Reviewed{' '}
+														{new Date(item.reviewedAt).toLocaleString()}
+													</div>
+												) : null}
+											</td>
+
+											<td className="px-3 py-4 align-top">
+												<div className="flex flex-col gap-2">
+													{renderBadge(
+														item.investorEligibilityStatus || 'blocked',
+													)}
+													{renderBadge(
+														isTestingOnly
+															? 'testing_only'
+															: item.reviewState || 'incomplete',
+													)}
+													{isTestingOnly ? (
+														<div className="text-xs text-[#5F6C86]">
+															Underlying status:{' '}
+															<span className="font-semibold text-[#163F74]">
+																{formatLabel(underlyingReviewState)}
+															</span>
+														</div>
+													) : null}
+													{item.eligibilitySource ? (
+														<div className="text-xs text-[#5F6C86]">
+															Source:{' '}
+															<span className="font-semibold text-[#163F74]">
+																{formatLabel(item.eligibilitySource)}
+															</span>
+														</div>
+													) : null}
+												</div>
+											</td>
+
+											<td className="px-3 py-4 align-top">
+												<div className="text-sm text-[#163F74]">
+													{item.wholesaleCertificateOriginalName ||
+														'No certificate'}
+												</div>
+												{item.wholesaleCertificateExpiryDate ? (
+													<div className="mt-1 text-xs text-[#5F6C86]">
+														Expires{' '}
+														{new Date(
+															item.wholesaleCertificateExpiryDate,
+														).toLocaleDateString()}
+													</div>
+												) : null}
+												<div className="mt-2">
+													{renderBadge(item.wholesaleStatus || 'pending')}
+												</div>
+												{item.wholesaleCertificateDownloadUrl ? (
+													<a
+														href={item.wholesaleCertificateDownloadUrl}
+														target="_blank"
+														rel="noopener noreferrer"
+														className="mt-2 inline-block text-xs font-semibold text-[#346FB6]"
+													>
+														View document
+													</a>
+												) : null}
+											</td>
+
+											<td className="px-3 py-4 align-top">
+												<textarea
+													value={notesByUserId[item.userId] || ''}
+													onChange={(event) =>
+														setNotesByUserId((prev) => ({
+															...prev,
+															[item.userId]: event.target.value,
+														}))
+													}
+													className="min-h-[110px] w-[240px] rounded-[16px] border border-[#E7ECF4] bg-white px-3 py-3 text-sm text-[#163F74] outline-none"
+													placeholder="Add admin decision notes or request details"
+													data-test={`investor-approval-notes-${item.userId}`}
+												/>
+											</td>
+
+											<td className="px-3 py-4 align-top">
+												<div className="flex min-w-[180px] flex-col gap-2">
+													{renderBadge(
+														isTestingOnly
+															? 'testing_only'
+															: 'standard_verification',
+														isTestingOnly
+															? 'testing_only'
+															: 'standard_verification',
+													)}
+													<div className="text-xs leading-5 text-[#5F6C86]">
+														{isTestingOnly
+															? 'Eligible in non-production through test override.'
+															: 'Follows the standard live verification path.'}
+													</div>
+													{item.testInvestmentOverrideSetAt ? (
+														<div className="text-xs leading-5 text-[#5F6C86]">
+															Set{' '}
+															{new Date(
+																item.testInvestmentOverrideSetAt,
+															).toLocaleString()}
+														</div>
+													) : null}
+												</div>
+											</td>
+
+											<td className="rounded-r-2xl px-3 py-4 align-top">
+												<div className="flex min-w-[190px] flex-col gap-2">
+													<button
+														type="button"
+														onClick={() => void openInvestorReview(item.userId)}
+														disabled={isBusy}
+														className="rounded-[12px] border border-[#DCE7F5] bg-[#F8FBFF] px-3 py-2 text-xs font-semibold text-[#346FB6] disabled:cursor-not-allowed disabled:opacity-60"
+														data-test={`investor-approval-detail-${item.userId}`}
+													>
+														Review Details
+													</button>
+													<button
+														type="button"
+														onClick={() =>
+															void submitReview(item.userId, 'approved')
+														}
+														disabled={
+															isBusy || item.sumsubStatus !== 'approved'
+														}
+														className="rounded-[12px] bg-[#2F80ED] px-3 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+														data-test={`investor-approval-approve-${item.userId}`}
+													>
+														{isBusy ? 'Working...' : 'Approve Access'}
+													</button>
+													<button
+														type="button"
+														onClick={() =>
+															void submitReview(
+																item.userId,
+																'more_info_required',
+															)
+														}
+														disabled={isBusy}
+														className="rounded-[12px] border border-[#E7ECF4] px-3 py-2 text-xs font-semibold text-[#163F74] disabled:cursor-not-allowed disabled:opacity-60"
+														data-test={`investor-approval-more-info-${item.userId}`}
+													>
+														Request More Info
+													</button>
+													<button
+														type="button"
+														onClick={() =>
+															void submitReview(item.userId, 'rejected')
+														}
+														disabled={isBusy}
+														className="rounded-[12px] border border-[#F6CDD6] px-3 py-2 text-xs font-semibold text-[#B4235D] disabled:cursor-not-allowed disabled:opacity-60"
+														data-test={`investor-approval-reject-${item.userId}`}
+													>
+														Reject Access
+													</button>
+													{adminTestOverrideEnabled ? (
+														<button
+															type="button"
+															onClick={() =>
+																openOverrideModal(
+																	item,
+																	isTestingOnly ? 'disable' : 'enable',
+																)
+															}
+															disabled={isBusy}
+															className={`rounded-[12px] px-3 py-2 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-60 ${
+																isTestingOnly
+																	? 'border border-[#FAD7C2] bg-[#FFF7F2] text-[#B54708]'
+																	: 'border border-[#DCE7F5] bg-[#F8FBFF] text-[#346FB6]'
+															}`}
+															data-test={`investor-approval-test-mode-${item.userId}`}
+														>
+															{isTestingOnly
+																? 'Disable Test Override'
+																: 'Enable Test Override'}
+														</button>
+													) : (
+														<div className="rounded-[12px] border border-[#E7ECF4] bg-[#F8FBFF] px-3 py-2 text-xs font-medium text-[#5F6C86]">
+															Test override unavailable in production.
+														</div>
+													)}
+													{item.sumsubStatus !== 'approved' ? (
+														<div className="text-xs leading-5 text-[#5F6C86]">
+															Approve Access stays disabled until Sumsub is approved.
+														</div>
+													) : null}
+												</div>
+											</td>
+										</tr>
+									);
+								})}
+							</tbody>
+						</table>
+					)}
+
+					{!isLoading && filteredInvestors.length === 0 ? (
+						<div
+							className="py-10 text-center text-sm text-[#5F6C86]"
+							data-test="admin-investor-approvals-empty"
+						>
+							No investor verification records are currently in the queue.
+						</div>
+					) : null}
+				</div>
+			</div>
+
+			{selectedInvestorId ? (
+				<div className="fixed inset-0 z-50 flex justify-end bg-[#0F172A]/30">
+					<div className="h-full w-full max-w-[560px] overflow-y-auto bg-white shadow-[-8px_0_32px_rgba(15,23,42,0.12)]">
+						<div className="sticky top-0 border-b border-[#E7ECF4] bg-white px-6 py-5">
+							<div className="flex items-start justify-between gap-4">
+								<div>
+									<p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8FA0B8]">
+										Investor Review
+									</p>
+									<h2 className="mt-2 text-[28px] font-semibold tracking-tight text-[#163F74]">
+										{selectedInvestorDetail?.fullname ||
+											selectedInvestorDetail?.email ||
+											`Investor ${selectedInvestorId}`}
+									</h2>
+									<p className="mt-2 text-sm text-[#5F6C86]">
+										Review Sumsub status, supporting documents, AML responses,
+										and RegenX internal approval in one place.
+									</p>
+								</div>
+								<button
+									type="button"
+									onClick={() => {
+										setSelectedInvestorId(null);
+										setSelectedInvestorDetail(null);
+									}}
+									className="rounded-[12px] border border-[#E7ECF4] px-3 py-2 text-sm font-semibold text-[#163F74]"
+								>
+									Close
+								</button>
+							</div>
+						</div>
+
+						<div className="space-y-6 px-6 py-6">
+							{isDetailLoading ? (
+								<div className="rounded-[18px] border border-[#E7ECF4] bg-[#F8FBFF] px-4 py-4 text-sm text-[#5F6C86]">
+									Loading investor review detail...
+								</div>
+							) : selectedInvestorDetail ? (
+								<>
+									<div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+										<DetailItem
+											label="Investor Name"
+											value={selectedInvestorDetail.fullname}
+										/>
+										<DetailItem
+											label="Email"
+											value={selectedInvestorDetail.email}
+										/>
+										<DetailItem
+											label="Phone"
+											value={selectedInvestorDetail.phoneNumber}
+										/>
+										<DetailItem
+											label="User ID"
+											value={selectedInvestorDetail.userId}
+										/>
+									</div>
+
+									<div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+										<DetailItem
+											label="Queue Review State"
+											value={
+												selectedInvestorDetail.testOverrideActive
+													? 'Testing Only'
+													: formatLabel(
+															selectedInvestorDetail.reviewState || 'incomplete',
+													  )
+											}
+										/>
+										<DetailItem
+											label="Underlying Review State"
+											value={formatLabel(
+												getUnderlyingReviewState(selectedInvestorDetail),
+											)}
+										/>
+									</div>
+
+									<div className="rounded-[18px] border border-[#E7ECF4] bg-white p-5">
+										<p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8FA0B8]">
+											Verification Status
+										</p>
+										<div className="mt-4 flex flex-wrap gap-2">
+											{renderBadge(selectedInvestorDetail.sumsubStatus || 'not_started')}
+											{renderBadge(selectedInvestorDetail.adminReviewStatus || 'pending')}
+											{renderBadge(
+												selectedInvestorDetail.investorEligibilityStatus ||
+													'blocked',
+											)}
+											{renderBadge(
+												selectedInvestorDetail.testOverrideActive
+													? 'testing_only'
+													: selectedInvestorDetail.reviewState || 'incomplete',
+											)}
+											{renderBadge(
+												selectedInvestorDetail.wholesaleStatus || 'pending',
+											)}
+											{selectedInvestorDetail.testOverrideActive ? (
+												<AdminStatusBadge label="Testing Only" tone="yellow" />
+											) : null}
+										</div>
+										{selectedInvestorDetail.testOverrideActive ? (
+											<div className="mt-4 rounded-[14px] border border-[#FAD7C2] bg-[#FFF7F2] px-4 py-3 text-sm text-[#7A5A00]">
+												<div className="font-semibold text-[#B54708]">
+													Testing Only is enabled for this investor in
+													non-production.
+												</div>
+												<div className="mt-1 text-[#8A6A11]">
+													Underlying review state:{' '}
+													{formatLabel(
+														getUnderlyingReviewState(selectedInvestorDetail),
+													)}
+												</div>
+											</div>
+										) : null}
+
+										<div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+											<DetailItem
+												label="Sumsub Applicant"
+												value={selectedInvestorDetail.sumsubApplicantId}
+											/>
+											<DetailItem
+												label="Reviewed By"
+												value={selectedInvestorDetail.reviewedBy}
+											/>
+											<DetailItem
+												label="Created"
+												value={
+													selectedInvestorDetail.createdAt
+														? new Date(
+																selectedInvestorDetail.createdAt,
+														  ).toLocaleString()
+														: null
+												}
+											/>
+											<DetailItem
+												label="Last Updated"
+												value={
+													selectedInvestorDetail.updatedAt
+														? new Date(
+																selectedInvestorDetail.updatedAt,
+														  ).toLocaleString()
+														: null
+												}
+											/>
+											<DetailItem
+												label="Reviewed At"
+												value={
+													selectedInvestorDetail.reviewedAt
+														? new Date(
+																selectedInvestorDetail.reviewedAt,
+														  ).toLocaleString()
+														: null
+												}
+											/>
+											<DetailItem
+												label="Eligibility Source"
+												value={formatLabel(
+													selectedInvestorDetail.eligibilitySource || 'none',
+												)}
+											/>
+											<DetailItem
+												label="Verification Path"
+												value={
+													selectedInvestorDetail.verificationOverrideMode ===
+													'testnet'
+														? 'Testing Only'
+														: 'Standard / Live verification'
+												}
+											/>
+											<DetailItem
+												label="Test Override Set By"
+												value={selectedInvestorDetail.testInvestmentOverrideSetBy}
+											/>
+											<DetailItem
+												label="Test Override Set At"
+												value={
+													selectedInvestorDetail.testInvestmentOverrideSetAt
+														? new Date(
+																selectedInvestorDetail.testInvestmentOverrideSetAt,
+														  ).toLocaleString()
+														: null
+												}
+											/>
+											<DetailItem
+												label="Test Override Note"
+												value={selectedInvestorDetail.testInvestmentOverrideNote}
+											/>
+											<DetailItem
+												label="Certificate Expiry"
+												value={
+													selectedInvestorDetail.wholesaleCertificateExpiryDate
+														? new Date(
+																selectedInvestorDetail.wholesaleCertificateExpiryDate,
+														  ).toLocaleDateString()
+														: null
+												}
+											/>
+											</div>
+										</div>
+
+										<div className="rounded-[18px] border border-[#E7ECF4] bg-white p-5">
+										<p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8FA0B8]">
+											Supporting Documents
+										</p>
+										<div className="mt-4 grid gap-3">
+											<DetailItem
+												label="Wholesale Certificate"
+												value={
+													selectedInvestorDetail.wholesaleCertificateOriginalName
+												}
+											/>
+											{selectedInvestorDetail.wholesaleCertificateDownloadUrl ? (
+												<a
+													href={
+														selectedInvestorDetail.wholesaleCertificateDownloadUrl
+													}
+													target="_blank"
+													rel="noopener noreferrer"
+													className="inline-flex w-fit rounded-[12px] border border-[#DCE7F5] bg-[#F8FBFF] px-4 py-2 text-sm font-semibold text-[#346FB6]"
+												>
+													Open uploaded document
+												</a>
+											) : (
+												<p className="text-sm text-[#5F6C86]">
+													No uploaded wholesale certificate is attached yet.
+												</p>
+											)}
+										</div>
+									</div>
+
+									<div className="rounded-[18px] border border-[#E7ECF4] bg-white p-5">
+										<p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8FA0B8]">
+											AML / CTF Questionnaire
+										</p>
+										{amlEntries.length ? (
+											<div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+												{amlEntries.map((entry) => (
+													<DetailItem
+														key={entry.label}
+														label={entry.label}
+														value={entry.value}
+													/>
+												))}
+											</div>
+										) : (
+											<p className="mt-4 text-sm text-[#5F6C86]">
+												No AML / CTF questionnaire answers have been saved yet.
+											</p>
+										)}
+									</div>
+
+										{adminTestOverrideEnabled ? (
+											<div className="rounded-[18px] border border-[#FAD7C2] bg-[#FFFDF8] p-5">
+												<p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#B54708]">
+													Testing Only Control
+												</p>
+												<p className="mt-3 text-sm leading-6 text-[#7A5A00]">
+													Switch this investor between the standard / live
+													verification path and the non-production Testing Only
+													override. Real compliance approval remains separate.
+												</p>
+												<div className="mt-4 flex flex-wrap items-center gap-2">
+													{renderBadge(
+														selectedInvestorDetail.testOverrideActive
+															? 'testing_only'
+															: 'standard_verification',
+														selectedInvestorDetail.testOverrideActive
+															? 'testing_only'
+															: 'standard_verification',
+													)}
+												</div>
+												{selectedInvestorDetail.testInvestmentOverrideNote ? (
+													<p className="mt-3 rounded-[14px] border border-[#FCE7C2] bg-white px-4 py-3 text-sm text-[#7A5A00]">
+													<span className="font-semibold">Current note:</span>{' '}
+													{selectedInvestorDetail.testInvestmentOverrideNote}
+												</p>
+											) : null}
+												<div className="mt-4 flex flex-wrap gap-3">
+													<button
+														type="button"
+														onClick={() =>
+															openOverrideModal(
+																selectedInvestorDetail,
+																selectedInvestorDetail.testOverrideActive
+																	? 'disable'
+																	: 'enable',
+															)
+														}
+														disabled={processingUserId === selectedInvestorId}
+														className={`rounded-[12px] px-4 py-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60 ${
+															selectedInvestorDetail.testOverrideActive
+																? 'border border-[#FAD7C2] bg-[#FFF7F2] text-[#B54708]'
+																: 'border border-[#DCE7F5] bg-[#F8FBFF] text-[#346FB6]'
+														}`}
+														data-test="investor-approval-detail-test-mode"
+													>
+														{selectedInvestorDetail.testOverrideActive
+															? 'Disable Test Override'
+															: 'Enable Test Override'}
+													</button>
+												</div>
+											</div>
+										) : (
+											<div className="rounded-[18px] border border-[#E7ECF4] bg-white p-5 text-sm text-[#5F6C86]">
+												Testing Only controls are unavailable in production.
+											</div>
+										)}
+
+									<div className="rounded-[18px] border border-[#E7ECF4] bg-white p-5">
+										<p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8FA0B8]">
+											Admin Review Notes
+										</p>
+										<textarea
+											value={notesByUserId[selectedInvestorId] || ''}
+											onChange={(event) =>
+												setNotesByUserId((prev) => ({
+													...prev,
+													[selectedInvestorId]: event.target.value,
+												}))
+											}
+											className="mt-4 min-h-[130px] w-full rounded-[16px] border border-[#E7ECF4] bg-white px-4 py-3 text-sm text-[#163F74] outline-none"
+											placeholder="Document the approval decision, rejection reason, or requested follow-up information"
+										/>
+
+										<div className="mt-4 flex flex-wrap gap-3">
+											<button
+												type="button"
+												onClick={() =>
+													void submitReview(selectedInvestorId, 'approved')
+												}
+												disabled={
+													processingUserId === selectedInvestorId ||
+													selectedInvestorDetail.sumsubStatus !== 'approved'
+												}
+												className="rounded-[12px] bg-[#2F80ED] px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+											>
+												{processingUserId === selectedInvestorId
+													? 'Working...'
+													: 'Approve Access'}
+											</button>
+											<button
+												type="button"
+												onClick={() =>
+													void submitReview(
+														selectedInvestorId,
+														'more_info_required',
+													)
+												}
+												disabled={processingUserId === selectedInvestorId}
+												className="rounded-[12px] border border-[#E7ECF4] px-4 py-3 text-sm font-semibold text-[#163F74] disabled:cursor-not-allowed disabled:opacity-60"
+											>
+												Request More Info
+											</button>
+											<button
+												type="button"
+												onClick={() =>
+													void submitReview(selectedInvestorId, 'rejected')
+												}
+												disabled={processingUserId === selectedInvestorId}
+												className="rounded-[12px] border border-[#F6CDD6] px-4 py-3 text-sm font-semibold text-[#B4235D] disabled:cursor-not-allowed disabled:opacity-60"
+											>
+												Reject Access
+											</button>
+										</div>
+										{selectedInvestorDetail.sumsubStatus !== 'approved' ? (
+											<p className="mt-3 text-sm text-[#5F6C86]">
+												Approve remains disabled until Sumsub is approved.
+											</p>
+										) : null}
+									</div>
+								</>
+							) : (
+								<div className="rounded-[18px] border border-[#F6CDD6] bg-[#FFF4F7] px-4 py-4 text-sm text-[#B4235D]">
+									Unable to load investor review detail.
+								</div>
+							)}
+						</div>
+					</div>
+				</div>
+			) : null}
+
+			<BaseModal
+				title={
+					overrideModal.mode === 'enable'
+						? 'Set Testnet Override'
+						: 'Set Standard Verification'
+				}
+				dataTest="investor-test-override-modal"
+				isOpen={overrideModal.isOpen}
+				closeModal={closeOverrideModal}
+				submitButton={{
+					text:
+						overrideModal.mode === 'enable'
+							? 'Set Testnet Override'
+							: 'Set Standard Verification',
+					onClick: () => void submitTestOverride(),
+					isLoading:
+						Boolean(overrideModal.userId) &&
+						processingUserId === overrideModal.userId,
+				}}
+			>
+				<div className="space-y-4">
+					<p className="text-sm leading-6 text-[#475467]">
+						{overrideModal.mode === 'enable'
+							? `Enable the temporary testnet verification override for ${overrideModal.investorLabel}.`
+							: `Return ${overrideModal.investorLabel} to the standard verification path.`}
+					</p>
+					<div className="rounded-[14px] border border-[#FAD7C2] bg-[#FFF7F2] px-4 py-3 text-sm leading-6 text-[#B54708]">
+						This is a non-production testing override only. It does not replace
+						real compliance approval.
+					</div>
+					<div>
+						<label className="mb-2 block text-sm font-semibold text-[#163F74]">
+							Note
+						</label>
+						<textarea
+							value={overrideNote}
+							onChange={(event) => setOverrideNote(event.target.value)}
+							className="min-h-[120px] w-full rounded-[16px] border border-[#E7ECF4] bg-white px-4 py-3 text-sm text-[#163F74] outline-none"
+							placeholder="Why is this override being enabled or disabled?"
+						/>
+					</div>
+				</div>
+			</BaseModal>
+		</div>
+	);
+}

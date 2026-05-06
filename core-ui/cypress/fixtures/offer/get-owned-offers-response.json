@@ -1,0 +1,35 @@
+{
+	"data": [
+		{
+			"type": "offer",
+			"id": "1",
+			"attributes": {
+				"id": "1",
+				"user": "38c4f729-1e46-4f7f-a099-6116e2cf62e1",
+				"price": 100,
+				"amount": 50,
+				"projectUuid": "project-123",
+				"isActive": true,
+				"createdAt": "2024-03-20T10:00:00Z",
+				"updatedAt": "2024-03-20T10:00:00Z",
+				"project": {
+					"id": "project-123",
+					"name": "Test Project",
+					"tokenSymbol": "TEST",
+					"description": "Test Project Description"
+				}
+			}
+		}
+	],
+	"meta": {
+		"pageSize": 1,
+		"pageNumber": 1,
+		"pageCount": 1,
+		"itemCount": 1
+	},
+	"links": {
+		"self": "offer?page[number]=1&filter[userUuid]=38c4f729-1e46-4f7f-a099-6116e2cf62e1&filter[includeOwn]=true",
+		"next": null,
+		"last": "offer?page[number]=1&filter[userUuid]=38c4f729-1e46-4f7f-a099-6116e2cf62e1&filter[includeOwn]=true"
+	}
+}

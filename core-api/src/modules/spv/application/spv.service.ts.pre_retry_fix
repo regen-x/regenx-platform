@@ -1,0 +1,114 @@
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Like, Repository } from 'typeorm';
+
+import { SpvEntity } from '../infrastructure/persistence/entities/spv.entity';
+import { SeriesEntity } from '../infrastructure/persistence/entities/series.entity';
+import { ProjectEntity } from '../../project/infrastructure/persistence/entities/project.entity';
+
+@Injectable()
+export class SpvService {
+  constructor(
+    @InjectRepository(SpvEntity)
+    private readonly spvRepo: Repository<SpvEntity>,
+
+    @InjectRepository(SeriesEntity)
+    private readonly seriesRepo: Repository<SeriesEntity>,
+
+    @InjectRepository(ProjectEntity)
+    private readonly projectRepo: Repository<ProjectEntity>,
+  ) {}
+
+  private getTokenPrefix(project: ProjectEntity): string {
+    const raw =
+      ((project as any).projectType as string) ||
+      ((project as any).dseType as string) ||
+      '';
+
+    const value = raw.toLowerCase();
+
+    if (value.includes('battery') || value.includes('bess')) return 'BAT';
+    if (value.includes('solar')) return 'SOL';
+    if (value.includes('wind')) return 'WND';
+    if (value.includes('hydrogen')) return 'HYD';
+
+    return 'AST';
+  }
+
+  private async generateTokenSymbol(prefix: string): Promise<string> {
+    const existing = await this.seriesRepo.find({
+      where: {
+        tokenSymbol: Like(`${prefix}%`),
+      } as any,
+      select: ['tokenSymbol'] as any,
+    });
+
+    let max = 0;
+
+    for (const row of existing as any[]) {
+      const symbol = String(row.tokenSymbol ?? '').toUpperCase();
+      const match = symbol.match(new RegExp(`^${prefix}(\\d+)$`));
+      if (!match) continue;
+
+      const n = Number(match[1]);
+      if (Number.isFinite(n) && n > max) max = n;
+    }
+
+    return `${prefix}${String(max + 1).padStart(2, '0')}`;
+  }
+
+  async createSeriesForProject(projectId: number) {
+    const project = await this.projectRepo.findOne({
+      where: { id: projectId },
+    });
+
+    if (!project) {
+      throw new NotFoundException('Project not found');
+    }
+
+    const existingSeries = await this.seriesRepo.findOne({
+      where: {
+        project: { id: projectId },
+      } as any,
+      relations: ['spv', 'project'],
+    });
+
+    if (existingSeries) {
+      return {
+        spv: existingSeries.spv,
+        series: existingSeries,
+      };
+    }
+
+    const spv = this.spvRepo.create({
+      name: `${project.name || 'Project'} SPV`,
+      legalEntityName: `${project.name || 'Project'} Pty Ltd`,
+      jurisdiction: 'Australia',
+      structureType: 'MIS',
+    });
+
+    const savedSpv = await this.spvRepo.save(spv);
+
+    const tokenSymbol = await this.generateTokenSymbol(
+      this.getTokenPrefix(project),
+    );
+
+    const series = new SeriesEntity();
+    series.name = `${project.name || 'Project'} Series A`;
+    series.tokenSymbol = tokenSymbol;
+    series.totalSupply = Number((project as any).tokenSupply ?? 1000000);
+    series.pricePerToken = Number((project as any).tokenPrice ?? 1);
+    series.targetIrr = (project as any).targetIrr ?? null;
+    series.termYears = (project as any).investmentTermYears ?? null;
+    series.status = 'draft';
+    series.spv = savedSpv;
+    series.project = project;
+
+    const savedSeries = await this.seriesRepo.save(series);
+
+    return {
+      spv: savedSpv,
+      series: savedSeries,
+    };
+  }
+}

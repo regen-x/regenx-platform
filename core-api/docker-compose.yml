@@ -1,0 +1,21 @@
+# version: '3'
+
+services:
+  db:
+    image: postgres:latest
+    cap_add:
+      - SYS_NICE
+    environment:
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_DB=${DB_NAME}
+      - POSTGRES_USER=${DB_USERNAME}
+    ports:
+      - '${DB_PORT}:5432'
+    volumes:
+      - ./data/postgresql/:/var/lib/postgresql
+  stellar:
+    image: stellar/quickstart:soroban-dev
+    container_name: regenx-stellar
+    command: --local --enable-soroban-rpc
+    ports:
+      - '8000:8000'

@@ -1,0 +1,10 @@
+export const STELLAR_EXPLORER_URL = import.meta.env.VITE_STELLAR_EXPLORER_URL;
+export const SIMPLE_SIGNER_URL = import.meta.env.VITE_SIMPLE_SIGNER_URL;
+export const REFERENCE_TOKEN_ISSUER = import.meta.env
+	.VITE_REFERENCE_TOKEN_ISSUER;
+export const REFERENCE_TOKEN_ASSET_CODE = import.meta.env
+	.VITE_REFERENCE_TOKEN_ASSET_CODE;
+export const STELLAR_HORIZON_URL = import.meta.env.VITE_STELLAR_HORIZON_URL;
+export const STELLAR_NETWORK_PASSPHRASE = import.meta.env
+	.VITE_STELLAR_NETWORK_PASSPHRASE;
+export const ISSUER_ADDRESS = import.meta.env.VITE_ISSUER_ADDRESS;

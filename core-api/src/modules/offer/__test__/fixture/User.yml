@@ -1,0 +1,43 @@
+entity: UserEntity
+items:
+  user1:
+    uuid: '28a129c4-7526-449e-98d0-4410333b446a'
+    email: 'admin@test.com'
+    externalId: '00000000-0000-0000-0000-00000000000X'
+    role: admin
+    fullname: 'Admin User'
+    birthdate: '2000-01-01'
+    phoneNumber: '1234567890'
+    walletAddress: 'GA5WKZC7O32RDTNHWRUHO4P6UAFW6DP73LOAW2S64IFT2IFLDSWDZ7KM'
+    type: 'climate_developer'
+
+  user2:
+    uuid: '34a129c4-7526-669e-96d3-441f333buk6z'
+    email: 'investorA@test.com'
+    externalId: '00000000-0000-0000-0000-00000000001X'
+    role: regular
+    fullname: 'Investor A'
+    birthdate: '2000-01-01'
+    phoneNumber: '1234567890'
+    walletAddress: 'GD7BTI6WZ4L4NP54EY4PVL5NLBE4X2HJLN6KPDJTYTXMQHNJGRIC55NJ'
+    type: 'wholesaleInvestor'
+
+  user3:
+    uuid: '76a129c4-7526-449e-98d5-4410333b4462'
+    email: 'investorB@test.com'
+    externalId: '00000000-0000-0000-0000-00000000002X'
+    role: regular
+    fullname: 'Investor B'
+    birthdate: '2000-01-01'
+    phoneNumber: '1234567890'
+    walletAddress: 'GA5WKZC7O32RDTNHWRUHO4P6UAFW6DP73LOAW2S64IFT2IFLDSWDZ7KN'
+    type: 'wholesaleInvestor'
+
+  user{4..23}:
+    email: '{{internet.email}}'
+    externalId: '{{string.uuid}}'
+    role: regular
+    fullname: '{{person.fullName}}'
+    birthdate: '{{date.past}}'
+    phoneNumber: '1234567890'
+    type: 'climate_developer'

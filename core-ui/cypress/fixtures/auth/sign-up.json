@@ -1,0 +1,14 @@
+{
+	"data": {
+		"type": "user",
+		"id": 4,
+		"attributes": {
+			"username": "example@test.com",
+			"externalId": "33d14899-3a53-4861-a030-cc22a8c232f2",
+			"roles": ["regular"],
+			"createdAt": "2024-05-02T15:55:14.764Z",
+			"updatedAt": "2024-05-02T15:55:14.000Z",
+			"deletedAt": null
+		}
+	}
+}

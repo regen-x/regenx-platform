@@ -1,0 +1,788 @@
+import { useEffect, useMemo, useState } from 'react';
+
+import PlatformAgreementContent from '@/components/agreement/platform-agreement-content';
+import { useSimpleSigner } from '@/hooks/stellar/useSimpleSigner';
+import { developerProfileService } from '@/services/developerProfile.service';
+import { notificationService } from '@/services/notification.service';
+import { useStellarStore } from '@/store/stellar.store';
+
+type StepKey =
+	| 'business-details'
+	| 'authorised-representative'
+	| 'compliance-details'
+	| 'platform-agreement';
+
+type StepStatus = 'not_started' | 'in_progress' | 'complete';
+
+type DeveloperForm = {
+	businessName: string;
+	abn: string;
+	countryOfIncorporation: string;
+	registeredOfficeAddress: string;
+	postalCode: string;
+
+	representativeFullName: string;
+	representativeRole: string;
+	representativeEmail: string;
+	representativePhone: string;
+	representativeAuthority: string;
+
+	complianceContactName: string;
+	complianceEntityType: string;
+	complianceTaxStatus: string;
+	complianceDirectorName: string;
+	complianceBeneficialOwner: string;
+	complianceBankAccountName: string;
+	complianceBankDetails: string;
+
+	walletAddress: string;
+	platformAgreementAccepted: boolean;
+	submitted: boolean;
+	submittedAt: string;
+};
+
+const steps: Array<{
+	key: StepKey;
+	number: number;
+	title: string;
+	subtitle: string;
+}> = [
+	{
+		key: 'business-details',
+		number: 1,
+		title: 'Business Details',
+		subtitle: 'Entity information',
+	},
+	{
+		key: 'authorised-representative',
+		number: 2,
+		title: 'Authorised Representative',
+		subtitle: 'KYC verification',
+	},
+	{
+		key: 'compliance-details',
+		number: 3,
+		title: 'Compliance Details',
+		subtitle: 'AML/CTF disclosure',
+	},
+	{
+		key: 'platform-agreement',
+		number: 4,
+		title: 'Platform Agreement',
+		subtitle: 'Legal sign-off',
+	},
+];
+
+const defaultForm: DeveloperForm = {
+	businessName: '',
+	abn: '',
+	countryOfIncorporation: '',
+	registeredOfficeAddress: '',
+	postalCode: '',
+
+	representativeFullName: '',
+	representativeRole: '',
+	representativeEmail: '',
+	representativePhone: '',
+	representativeAuthority: '',
+
+	complianceContactName: '',
+	complianceEntityType: '',
+	complianceTaxStatus: '',
+	complianceDirectorName: '',
+	complianceBeneficialOwner: '',
+	complianceBankAccountName: '',
+	complianceBankDetails: '',
+
+	walletAddress: '',
+	platformAgreementAccepted: false,
+	submitted: false,
+	submittedAt: '',
+};
+
+const inputClass =
+	'w-full rounded-xl border border-[#D6DCE5] bg-white px-4 py-3 text-sm text-[#0F172A] outline-none transition placeholder:text-[#A0AEC0] focus:border-[#0F6A99]';
+
+function getStepIndex(step: StepKey) {
+	return steps.findIndex((item) => item.key === step);
+}
+
+function getStepStatus(currentStep: StepKey, step: StepKey): StepStatus {
+	const currentIndex = getStepIndex(currentStep);
+	const stepIndex = getStepIndex(step);
+
+	if (stepIndex < currentIndex) return 'complete';
+	if (stepIndex === currentIndex) return 'in_progress';
+	return 'not_started';
+}
+
+function StepItem({
+	number,
+	title,
+	subtitle,
+	status,
+	isActive,
+	onClick,
+}: {
+	number: number;
+	title: string;
+	subtitle: string;
+	status: StepStatus;
+	isActive: boolean;
+	onClick: () => void;
+}) {
+	const circleClasses =
+		status === 'complete' || isActive
+			? 'border-[#0F766E] bg-[#0F766E] text-white'
+			: 'border-[#E5E7EB] bg-white text-[#6B7280]';
+
+	return (
+		<button
+			type="button"
+			onClick={onClick}
+			className="flex w-full items-start gap-3 rounded-xl px-1 py-2 text-left transition hover:bg-[#F8FAFC]"
+		>
+			<div
+				className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-xs font-semibold ${circleClasses}`}
+			>
+				{number}
+			</div>
+
+			<div className="min-w-0">
+				<div
+					className={`text-sm font-semibold ${
+						isActive ? 'text-[#0F172A]' : 'text-[#334155]'
+					}`}
+				>
+					{title}
+				</div>
+				<div className="mt-0.5 text-xs text-[#94A3B8]">{subtitle}</div>
+			</div>
+		</button>
+	);
+}
+
+function Label({ children }: { children: React.ReactNode }) {
+	return (
+		<label className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.08em] text-[#64748B]">
+			{children}
+		</label>
+	);
+}
+
+function InfoCard({
+	icon,
+	title,
+	description,
+}: {
+	icon: string;
+	title: string;
+	description: string;
+}) {
+	return (
+		<div className="rounded-2xl border border-[#E2E8F0] bg-[#F8FBFF] p-4">
+			<div className="flex items-start gap-3">
+				<div className="mt-0.5 text-sm">{icon}</div>
+				<div>
+					<div className="text-sm font-semibold text-[#0F172A]">{title}</div>
+					<div className="mt-1 text-xs leading-5 text-[#64748B]">
+						{description}
+					</div>
+				</div>
+			</div>
+		</div>
+	);
+}
+
+export default function DeveloperSetup() {
+	const [currentStep, setCurrentStep] = useState<StepKey>('business-details');
+	const [form, setForm] = useState<DeveloperForm>(defaultForm);
+	const [hasHydrated, setHasHydrated] = useState(false);
+	const [isSaving, setIsSaving] = useState(false);
+
+	const { publicKey } = useStellarStore();
+	const { handleConnectWallet } = useSimpleSigner();
+
+	useEffect(() => {
+		let mounted = true;
+
+		const loadProfile = async () => {
+			try {
+				const res = await developerProfileService.getMine();
+				const profile = (res as any)?.data ?? res;
+
+				if (!mounted) return;
+
+				if (!profile) {
+					setHasHydrated(true);
+					return;
+				}
+
+				const payload = profile.payloadJson ?? {};
+
+				setForm({
+					businessName: profile.businessName ?? payload.businessName ?? '',
+					abn: profile.abn ?? payload.abn ?? '',
+					countryOfIncorporation: payload.countryOfIncorporation ?? '',
+					registeredOfficeAddress: payload.registeredOfficeAddress ?? '',
+					postalCode: payload.postalCode ?? '',
+
+					representativeFullName:
+						profile.representativeFullName ??
+						payload.representativeFullName ??
+						'',
+					representativeRole: payload.representativeRole ?? '',
+					representativeEmail:
+						profile.representativeEmail ?? payload.representativeEmail ?? '',
+					representativePhone: payload.representativePhone ?? '',
+					representativeAuthority: payload.representativeAuthority ?? '',
+
+					complianceContactName:
+						profile.complianceContactName ??
+						payload.complianceContactName ??
+						'',
+					complianceEntityType: payload.complianceEntityType ?? '',
+					complianceTaxStatus: payload.complianceTaxStatus ?? '',
+					complianceDirectorName: payload.complianceDirectorName ?? '',
+					complianceBeneficialOwner: payload.complianceBeneficialOwner ?? '',
+					complianceBankAccountName: payload.complianceBankAccountName ?? '',
+					complianceBankDetails: payload.complianceBankDetails ?? '',
+
+					walletAddress:
+						profile.walletAddress ?? payload.walletAddress ?? publicKey ?? '',
+					platformAgreementAccepted: Boolean(
+						profile.platformAgreementAccepted ??
+							payload.platformAgreementAccepted,
+					),
+					submitted:
+						profile.status === 'completed' ||
+						profile.status === 'approved' ||
+						payload.submitted === true,
+					submittedAt: profile.submittedAt ?? payload.submittedAt ?? '',
+				});
+
+				setHasHydrated(true);
+			} catch (error) {
+				console.error('Failed to load developer profile', error);
+				setHasHydrated(true);
+			}
+		};
+
+		loadProfile();
+
+		return () => {
+			mounted = false;
+		};
+	}, [publicKey]);
+
+	useEffect(() => {
+		if (!publicKey) return;
+		setForm((prev) => ({
+			...prev,
+			walletAddress: prev.walletAddress || publicKey,
+		}));
+	}, [publicKey]);
+
+	const currentIndex = useMemo(() => getStepIndex(currentStep), [currentStep]);
+	const isLocked = form.submitted;
+
+	const updateField = <K extends keyof DeveloperForm>(
+		field: K,
+		value: DeveloperForm[K],
+	) => {
+		if (isLocked) return;
+		setForm((prev) => ({ ...prev, [field]: value }));
+	};
+
+	const saveDraft = async () => {
+		try {
+			setIsSaving(true);
+			await developerProfileService.save(form as any);
+			notificationService.success('Developer setup draft saved');
+		} catch (error) {
+			console.error('Failed to save developer setup', error);
+			notificationService.error('Failed to save developer setup draft');
+		} finally {
+			setIsSaving(false);
+		}
+	};
+
+	const nextStep = () => {
+		if (currentIndex < steps.length - 1) {
+			setCurrentStep(steps[currentIndex + 1].key);
+		}
+	};
+
+	const previousStep = () => {
+		if (currentIndex > 0) {
+			setCurrentStep(steps[currentIndex - 1].key);
+		}
+	};
+
+	const handleContinue = async () => {
+		if (isLocked) return;
+
+		if (currentStep === 'platform-agreement') {
+			try {
+				setIsSaving(true);
+				await developerProfileService.save(form as any);
+				await developerProfileService.submit();
+
+				setForm((prev) => ({
+					...prev,
+					submitted: true,
+					submittedAt: new Date().toISOString(),
+				}));
+
+				notificationService.success('Developer setup completed');
+			} catch (error) {
+				console.error('Failed to submit developer setup', error);
+				notificationService.error('Failed to complete developer setup');
+			} finally {
+				setIsSaving(false);
+			}
+			return;
+		}
+
+		await saveDraft();
+		nextStep();
+	};
+
+	const renderBusinessDetails = () => (
+		<>
+			<div className="mb-8">
+				<h2 className="text-[34px] font-semibold tracking-tight text-[#0F6A99]">
+					Business Details
+				</h2>
+				<p className="mt-2 text-sm text-[#64748B]">
+					Please provide your official company registration information as it
+					appears on your articles of incorporation.
+				</p>
+			</div>
+
+			<div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+				<div>
+					<Label>Business Name</Label>
+					<input
+						className={inputClass}
+						placeholder="e.g. RegenX Global Holdings"
+						value={form.businessName}
+						onChange={(e) => updateField('businessName', e.target.value)}
+						disabled={isLocked}
+					/>
+				</div>
+
+				<div>
+					<Label>ABN / Registration Number</Label>
+					<input
+						className={inputClass}
+						placeholder="12 345 678 901"
+						value={form.abn}
+						onChange={(e) => updateField('abn', e.target.value)}
+						disabled={isLocked}
+					/>
+				</div>
+
+				<div className="md:col-span-2">
+					<Label>Country of Incorporation</Label>
+					<input
+						className={inputClass}
+						placeholder="Select a country"
+						value={form.countryOfIncorporation}
+						onChange={(e) =>
+							updateField('countryOfIncorporation', e.target.value)
+						}
+						disabled={isLocked}
+					/>
+				</div>
+
+				<div className="md:col-span-2">
+					<Label>Registered Office Address</Label>
+					<input
+						className={inputClass}
+						placeholder="128 Innovation Way, Suite 400"
+						value={form.registeredOfficeAddress}
+						onChange={(e) =>
+							updateField('registeredOfficeAddress', e.target.value)
+						}
+						disabled={isLocked}
+					/>
+				</div>
+
+				<div>
+					<Label>Tax Identification Number (TIN)</Label>
+					<input
+						className={inputClass}
+						placeholder="XX-XXXXXXX"
+						value={form.taxIdentificationNumber}
+						onChange={(e) =>
+							updateField('taxIdentificationNumber', e.target.value)
+						}
+						disabled={isLocked}
+					/>
+				</div>
+
+				<div>
+					<Label>Postal Code</Label>
+					<input
+						className={inputClass}
+						placeholder="94103"
+						value={form.postalCode}
+						onChange={(e) => updateField('postalCode', e.target.value)}
+						disabled={isLocked}
+					/>
+				</div>
+			</div>
+		</>
+	);
+
+	const renderAuthorisedRepresentative = () => (
+		<>
+			<div className="mb-8">
+				<h2 className="text-[34px] font-semibold tracking-tight text-[#0F6A99]">
+					Authorised Representative
+				</h2>
+				<p className="mt-2 text-sm text-[#64748B]">
+					Add the primary person authorised to act on behalf of the climate
+					developer entity.
+				</p>
+			</div>
+
+			<div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+				<div>
+					<Label>Full Name</Label>
+					<input
+						className={inputClass}
+						placeholder="Jane Smith"
+						value={form.representativeFullName}
+						onChange={(e) =>
+							updateField('representativeFullName', e.target.value)
+						}
+						disabled={isLocked}
+					/>
+				</div>
+
+				<div>
+					<Label>Job Title</Label>
+					<input
+						className={inputClass}
+						placeholder="Director"
+						value={form.representativeRole}
+						onChange={(e) => updateField('representativeRole', e.target.value)}
+						disabled={isLocked}
+					/>
+				</div>
+
+				<div>
+					<Label>Email Address</Label>
+					<input
+						className={inputClass}
+						placeholder="jane@company.com"
+						value={form.representativeEmail}
+						onChange={(e) => updateField('representativeEmail', e.target.value)}
+						disabled={isLocked}
+					/>
+				</div>
+
+				<div>
+					<Label>Phone Number</Label>
+					<input
+						className={inputClass}
+						placeholder="+61 4xx xxx xxx"
+						value={form.representativePhone}
+						onChange={(e) => updateField('representativePhone', e.target.value)}
+						disabled={isLocked}
+					/>
+				</div>
+
+				<div className="md:col-span-2">
+					<Label>Authority Confirmation</Label>
+					<input
+						className={inputClass}
+						placeholder="I am authorised to act on behalf of the entity"
+						value={form.representativeAuthority}
+						onChange={(e) =>
+							updateField('representativeAuthority', e.target.value)
+						}
+						disabled={isLocked}
+					/>
+				</div>
+			</div>
+		</>
+	);
+
+	const renderComplianceDetails = () => (
+		<>
+			<div className="mb-8">
+				<h2 className="text-[34px] font-semibold tracking-tight text-[#0F6A99]">
+					Compliance Details
+				</h2>
+				<p className="mt-2 text-sm text-[#64748B]">
+					Provide the key AML, KYC, and entity verification details required for
+					onboarding.
+				</p>
+			</div>
+
+			<div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+				<div>
+					<Label>Compliance Contact Name</Label>
+					<input
+						className={inputClass}
+						placeholder="Primary compliance contact"
+						value={form.complianceContactName}
+						onChange={(e) =>
+							updateField('complianceContactName', e.target.value)
+						}
+						disabled={isLocked}
+					/>
+				</div>
+
+				<div>
+					<Label>Entity Type</Label>
+					<input
+						className={inputClass}
+						placeholder="Pty Ltd"
+						value={form.complianceEntityType}
+						onChange={(e) =>
+							updateField('complianceEntityType', e.target.value)
+						}
+						disabled={isLocked}
+					/>
+				</div>
+
+				<div>
+					<Label>Tax / GST Status</Label>
+					<input
+						className={inputClass}
+						placeholder="GST Registered"
+						value={form.complianceTaxStatus}
+						onChange={(e) => updateField('complianceTaxStatus', e.target.value)}
+						disabled={isLocked}
+					/>
+				</div>
+
+				<div>
+					<Label>Director Name</Label>
+					<input
+						className={inputClass}
+						placeholder="Director full name"
+						value={form.complianceDirectorName}
+						onChange={(e) =>
+							updateField('complianceDirectorName', e.target.value)
+						}
+						disabled={isLocked}
+					/>
+				</div>
+
+				<div>
+					<Label>Beneficial Owner</Label>
+					<input
+						className={inputClass}
+						placeholder="Beneficial owner details"
+						value={form.complianceBeneficialOwner}
+						onChange={(e) =>
+							updateField('complianceBeneficialOwner', e.target.value)
+						}
+						disabled={isLocked}
+					/>
+				</div>
+
+				<div>
+					<Label>Bank Account Name</Label>
+					<input
+						className={inputClass}
+						placeholder="Account name"
+						value={form.complianceBankAccountName}
+						onChange={(e) =>
+							updateField('complianceBankAccountName', e.target.value)
+						}
+						disabled={isLocked}
+					/>
+				</div>
+
+				<div className="md:col-span-2">
+					<Label>BSB / Account Number</Label>
+					<input
+						className={inputClass}
+						placeholder="Bank details"
+						value={form.complianceBankDetails}
+						onChange={(e) =>
+							updateField('complianceBankDetails', e.target.value)
+						}
+						disabled={isLocked}
+					/>
+				</div>
+
+				<div className="md:col-span-2">
+					<Label>Connected Wallet</Label>
+					<div className="flex gap-3">
+						<input
+							className={inputClass}
+							placeholder="Connect wallet to detect address"
+							value={form.walletAddress}
+							readOnly
+						/>
+						{!isLocked ? (
+							<button
+								type="button"
+								onClick={handleConnectWallet}
+								className="rounded-xl border border-[#D6DCE5] bg-white px-4 py-3 text-sm font-semibold text-[#0F6A99] transition hover:bg-[#F8FAFC]"
+							>
+								Connect Wallet
+							</button>
+						) : null}
+					</div>
+				</div>
+			</div>
+		</>
+	);
+
+	const renderPlatformAgreement = () => (
+		<>
+			<div className="mb-8">
+				<h2 className="text-[34px] font-semibold tracking-tight text-[#0F6A99]">
+					Platform Agreement
+				</h2>
+				<p className="mt-2 text-sm text-[#64748B]">
+					Review the legal terms and provide your electronic acknowledgement
+					before completing onboarding.
+				</p>
+			</div>
+
+			<div className="rounded-2xl border border-[#E2E8F0] bg-[#FCFDFE] p-5">
+				<PlatformAgreementContent />
+			</div>
+
+			<label className="mt-5 flex items-start gap-3 rounded-xl border border-[#E2E8F0] bg-[#F8FBFF] p-4">
+				<input
+					type="checkbox"
+					checked={form.platformAgreementAccepted}
+					onChange={(e) =>
+						updateField('platformAgreementAccepted', e.target.checked)
+					}
+					className="mt-1 h-4 w-4"
+					disabled={isLocked}
+				/>
+				<span className="text-sm text-[#334155]">
+					I have read and agree to the RegenX Platform Agreement.
+				</span>
+			</label>
+		</>
+	);
+
+	const renderCurrentStep = () => {
+		switch (currentStep) {
+			case 'business-details':
+				return renderBusinessDetails();
+			case 'authorised-representative':
+				return renderAuthorisedRepresentative();
+			case 'compliance-details':
+				return renderComplianceDetails();
+			case 'platform-agreement':
+				return renderPlatformAgreement();
+			default:
+				return renderBusinessDetails();
+		}
+	};
+
+	return (
+		<div className="min-h-full bg-[#F8FAFC] p-6">
+			<div className="mb-8">
+				<p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#94A3B8]">
+					Onboarding
+				</p>
+				<h1 className="mt-2 text-[40px] font-semibold tracking-tight text-[#0F6A99]">
+					Institutional verification
+				</h1>
+				<p className="mt-2 text-sm text-[#64748B]">
+					Complete the developer onboarding steps before moving into project
+					setup.
+				</p>
+			</div>
+
+			{isLocked ? (
+				<div className="mb-6 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">
+					Developer setup has been submitted. This page is now view only.
+				</div>
+			) : null}
+
+			<div className="grid grid-cols-1 gap-6 xl:grid-cols-[300px_minmax(0,1fr)]">
+				<aside className="rounded-[28px] border border-[#E2E8F0] bg-white p-5 shadow-sm">
+					<div className="space-y-3">
+						{steps.map((step) => (
+							<StepItem
+								key={step.key}
+								number={step.number}
+								title={step.title}
+								subtitle={step.subtitle}
+								status={getStepStatus(currentStep, step.key)}
+								isActive={currentStep === step.key}
+								onClick={() => setCurrentStep(step.key)}
+							/>
+						))}
+					</div>
+
+					<div className="mt-8 grid grid-cols-1 gap-3">
+						<InfoCard
+							icon="🔒"
+							title="Encrypted Data"
+							description="All registration data is stored using AES-256 encryption protocols and shared only with compliance partners."
+						/>
+						<InfoCard
+							icon="❓"
+							title="Need help?"
+							description="Our institutional onboarding team is available for real-time guidance if you have questions."
+						/>
+					</div>
+				</aside>
+
+				<main className="rounded-[28px] border border-[#E2E8F0] bg-white p-8 shadow-sm">
+					{!hasHydrated ? (
+						<div className="text-sm text-[#64748B]">
+							Loading developer profile...
+						</div>
+					) : (
+						<>
+							{renderCurrentStep()}
+
+							<div className="mt-10 flex items-center justify-between">
+								<button
+									type="button"
+									onClick={saveDraft}
+									disabled={isLocked || isSaving}
+									className="text-sm font-semibold text-[#0F6A99] transition hover:text-[#0C4A6E] disabled:cursor-not-allowed disabled:text-[#94A3B8]"
+								>
+									{isSaving ? 'Saving...' : 'Save Draft'}
+								</button>
+
+								<div className="flex items-center gap-3">
+									{currentIndex > 0 ? (
+										<button
+											type="button"
+											onClick={previousStep}
+											disabled={isLocked || isSaving}
+											className="rounded-xl border border-[#D6DCE5] px-5 py-3 text-sm font-semibold text-[#334155] transition hover:bg-[#F8FAFC] disabled:cursor-not-allowed disabled:text-[#94A3B8]"
+										>
+											Back
+										</button>
+									) : null}
+
+									<button
+										type="button"
+										onClick={handleContinue}
+										disabled={isLocked || isSaving}
+										className="rounded-xl bg-[#DCEEFF] px-5 py-3 text-sm font-semibold text-[#0F6A99] transition hover:bg-[#C7E3FF] disabled:cursor-not-allowed disabled:opacity-60"
+									>
+										{currentStep === 'platform-agreement'
+											? 'Complete Setup →'
+											: 'Continue →'}
+									</button>
+								</div>
+							</div>
+						</>
+					)}
+				</main>
+			</div>
+		</div>
+	);
+}

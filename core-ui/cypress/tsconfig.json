@@ -1,0 +1,23 @@
+{
+	"compilerOptions": {
+		"target": "es5",
+		"lib": ["es5", "dom"],
+		"types": ["cypress", "node"],
+		"module": "ESNext",
+		"skipLibCheck": true,
+		"moduleResolution": "bundler",
+		"allowImportingTsExtensions": true,
+		"resolveJsonModule": true,
+		"isolatedModules": true,
+		"noEmit": true,
+		"paths": {
+			"@context/*": ["../src/context/*"],
+			"@assets/*": ["../src/assets/*"],
+			"@components/*": ["../src/components/*"],
+			"@configs/*": ["../src/configs/*"],
+			"@pages/*": ["../src/pages/*"],
+			"@/*": ["../src/*"]
+		}
+	},
+	"include": ["**/*.ts", "../src"]
+}

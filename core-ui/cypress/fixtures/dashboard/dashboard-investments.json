@@ -1,0 +1,23 @@
+{
+	"data": [
+		{
+			"type": "investment",
+			"id": "1",
+			"attributes": {
+				"id": 1,
+				"name": "Benella Solar Project (Greenfield)",
+				"lastPrice": 1.0,
+				"change": 0.0,
+				"impactScore": 88,
+				"gain": 1.0,
+				"properties": ["Property 1", "Property 2", "Property 3"],
+				"image": "path/to/avatar.png"
+			}
+		}
+	],
+	"links": {
+		"self": "/subscription?limit=10&offset=0",
+		"next": null,
+		"last": null
+	}
+}

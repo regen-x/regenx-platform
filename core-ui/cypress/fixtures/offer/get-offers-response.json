@@ -1,0 +1,55 @@
+{
+	"data": [
+		{
+			"type": "offer",
+			"id": "1",
+			"attributes": {
+				"id": "2",
+				"user": "user-456",
+				"price": 20,
+				"amount": 10,
+				"projectUuid": "project-456",
+				"isActive": true,
+				"createdAt": "2024-03-20T11:00:00Z",
+				"updatedAt": "2024-03-20T11:00:00Z",
+				"project": {
+					"id": "project-456",
+					"name": "Second Project",
+					"tokenSymbol": "SEC",
+					"description": "Second Project Description"
+				}
+			}
+		},
+		{
+			"type": "offer",
+			"id": "2",
+			"attributes": {
+				"id": "3",
+				"user": "user-789",
+				"price": 30,
+				"amount": 75,
+				"projectUuid": "project-789",
+				"isActive": true,
+				"createdAt": "2024-03-20T12:00:00Z",
+				"updatedAt": "2024-03-20T12:00:00Z",
+				"project": {
+					"id": "project-789",
+					"name": "Third Project",
+					"tokenSymbol": "THD",
+					"description": "Third Project Description"
+				}
+			}
+		}
+	],
+	"meta": {
+		"pageSize": 1,
+		"pageNumber": 1,
+		"pageCount": 1,
+		"itemCount": 2
+	},
+	"links": {
+		"self": "offer?page[number]=1&filter[isActive]=true",
+		"next": null,
+		"last": "offer?page[number]=1&filter[isActive]=true"
+	}
+}
